@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat Apr 26 18:43:18 2025
+Evaluator Module for Regression Models
 
-@author: bp
+This module provides a flexible `evaluate_model` function for training,
+cross-validating, and assessing regression models. It supports both
+single-parameter sweeps and full grid searches. Key performance metrics
+and plots are automatically generated and saved.
+
+Author: Ben Panitz
+Created: April 26, 2025
 """
 import os
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from models.cross_val import KFold_CV, KFold_Gridsearch_CV
-
 from sklearn.metrics import r2_score, mean_squared_error
+from plotting.plot_regression import (
+    plot_pred_vs_actual,
+    plot_cv_performance,
+    plot_coefficients
+)
+
 
 def evaluate_model(x, y, directory, axis, model, model_name, analyte, 
                   param_name=None, param_range=None, param_grid=None, 
@@ -95,27 +105,15 @@ def evaluate_model(x, y, directory, axis, model, model_name, analyte,
     
     # Plotting for single parameter optimization
     if mode == 'single_param':
-        # Parameter vs R² plot
-        plt.figure(figsize=(10, 6))
-        plt.plot(param_range, cv_results['mean_r2_CV'], marker='o', linestyle='-', color='b')
-        plt.xlabel(param_name)
-        plt.ylabel('R² Score CV')
-        plt.title(f'R² Score CV vs. {param_name} for {analyte} ({model_name})')
-        plt.grid(True)
-        plt.savefig(os.path.join(directory, f'R²_vs_{param_name}_{model_name}_{analyte}.png'), 
-                    dpi=300, bbox_inches="tight")
-        plt.close()
-        
-        # Parameter vs MSE plot
-        plt.figure(figsize=(10, 6))
-        plt.plot(param_range, cv_results['mean_mse_CV'], marker='o', linestyle='-', color='r')
-        plt.xlabel(param_name)
-        plt.ylabel('Mean Squared Error CV (MSECV)')
-        plt.title(f'MSECV vs. {param_name} for {analyte} ({model_name})')
-        plt.grid(True)
-        plt.savefig(os.path.join(directory, f'MSE_vs_{param_name}_{model_name}_{analyte}.png'), 
-                    dpi=300, bbox_inches="tight")
-        plt.close()
+      plot_cv_performance(
+      param_range, 
+      cv_results['mean_r2_CV'], 
+      cv_results['mean_mse_CV'], 
+      param_name, 
+      analyte, 
+      model_name, 
+      directory
+  )
     else:
         # Save parameter search results as DataFrame
         cv_df = pd.DataFrame(cv_results['cv_results'])
@@ -123,36 +121,14 @@ def evaluate_model(x, y, directory, axis, model, model_name, analyte,
     
     # Plot regression coefficients if available
     if hasattr(final_model, 'coef_'):
-        plt.figure(figsize=(10, 6))
-        plt.plot(axis, final_model.coef_.flatten(), color='blue')
-        plt.xlabel('Features')
-        plt.ylabel('Regression Coefficients')
-        plt.title(f'Regression Coefficients ({model_name})')
-        plt.grid(True)
-        plt.savefig(os.path.join(directory, f'Coefficients_{model_name}_{analyte}.png'), 
-                    dpi=300, bbox_inches="tight")
-        plt.close()
+        plot_coefficients(axis, final_model.coef_, directory, model_name, analyte)
+   
     
-    # Common plotting - Predicted vs Actual (always make these plots)
-    def plot_pred_vs_actual(y_true, y_pred, title, filename):
-        plt.figure(figsize=(8, 8))
-        plt.scatter(y_true, y_pred, color='blue', alpha=0.6, label='Data')
-        plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 
-                 color='red', linestyle='--', label='Ideal')
-        slope, intercept = np.polyfit(y_true.ravel(), y_pred.ravel(), 1)
-        plt.plot(y_true, slope*y_true + intercept, 'g--', label='Best Fit')
-        plt.xlabel('Actual Values')
-        plt.ylabel('Predicted Values')
-        plt.title(title)
-        plt.grid(True)
-        plt.legend()
-        plt.savefig(os.path.join(directory, filename), dpi=300, bbox_inches="tight")
-        plt.show()
-    
-    # Final model predictions
+   # Final model predictions
     plot_pred_vs_actual(
         y, 
         Y_pred + cv_results['y_mean'], 
+        directory,
         f'Predicted vs. Actual for {analyte} ({model_name})',
         f'Pred_vs_Actual_{model_name}_{analyte}.png'
     )
@@ -161,6 +137,7 @@ def evaluate_model(x, y, directory, axis, model, model_name, analyte,
     plot_pred_vs_actual(
         y, 
         cv_results['Y_pred_CV'] + cv_results['y_mean'], 
+        directory,
         f'CV Predicted vs. Actual for {analyte} ({model_name})',
         f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
     )
