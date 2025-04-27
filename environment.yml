@@ -1,0 +1,38 @@
+name: nexchem_env
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - openpyxl
+  - scipy
+  - ipython
+  - jupyter_client
+  - jupyter_core
+  - spyder-kernels
+  - pip
+  - pip:
+      - pybaselines
+      - pysptools
+      - chemometrics
+      - contourpy
+      - cvxopt
+      - cycler
+      - et-xmlfile
+      - fonttools
+      - joblib
+      - kiwisolver
+      - pillow
+      - pyparsing
+      - pytz
+      - ramanspy
+      - renishawwire
+      - six
+      - threadpoolctl
+      - tzdata
+      - wget
+      - git+https://github.com/rohanisaac/spc.git
