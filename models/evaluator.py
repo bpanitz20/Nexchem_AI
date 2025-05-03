@@ -14,20 +14,25 @@ Created: April 26, 2025
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 from models.cross_val import KFold_CV, KFold_Gridsearch_CV
 from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from plotting.plot_regression import (
     plot_pred_vs_actual,
     plot_cv_performance,
-    plot_coefficients
+    plot_coefficients,
+    plot_feature_importance,
+    plot_vip_scores
 )
 
 
-def evaluate_model(x, y, directory, axis, model, model_name, analyte, 
+def evaluate_regression_model(x, y, directory, axis, model, model_name, analyte, 
                   param_name=None, param_range=None, param_grid=None, 
                   cv=KFold_CV):
     """
-    Enhanced model evaluation function that handles both single-parameter optimization
+    Enhanced regression model evaluation function that handles both single-parameter optimization
     and grid search, with consistent plotting outputs.
     
     Parameters:
@@ -122,7 +127,10 @@ def evaluate_model(x, y, directory, axis, model, model_name, analyte,
     # Plot regression coefficients if available
     if hasattr(final_model, 'coef_'):
         plot_coefficients(axis, final_model.coef_, directory, model_name, analyte)
-   
+        if model_name.lower() == 'pls':
+            plot_vip_scores(final_model, x, axis, directory, model_name, analyte)
+    elif any(m in model_name.lower() for m in ['mlp','gbr', 'svm', 'random forest', 'knn']):
+        plot_feature_importance(final_model, x, y - cv_results['y_mean'], axis, directory, model_name, analyte)
     
    # Final model predictions
     plot_pred_vs_actual(
@@ -151,4 +159,51 @@ def evaluate_model(x, y, directory, axis, model, model_name, analyte,
         'final_mse_CV': final_mse_CV,
         'model': final_model,
         'cv_results': cv_results
+    }
+
+
+def evaluate_classifier(x, y, directory, axis, model, model_name, analyte,
+                        param_name=None, param_range=None, param_grid=None,
+                        cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42)):
+    """
+    Evaluates a classifier with grid search or param sweep. Outputs metrics and confusion matrix.
+    """
+
+    # Grid search or single param sweep
+    if param_grid is not None:
+        grid = GridSearchCV(model, param_grid, cv=cv, scoring='accuracy', n_jobs=-1)
+        grid.fit(x, y)
+        final_model = grid.best_estimator_
+        best_params = grid.best_params_
+    else:
+        raise NotImplementedError("Only grid search is implemented for classification for now.")
+
+    # Predictions
+    y_pred = final_model.predict(x)
+
+    # Metrics
+    acc = accuracy_score(y, y_pred)
+    f1 = f1_score(y, y_pred, average='macro')
+
+    print(f"\n📊 Classification Metrics for {analyte} ({model_name})")
+    print(f"Best Params: {best_params}")
+    print(f"Accuracy: {acc:.3f}")
+    print(f"F1 Score: {f1:.3f}")
+
+    # Confusion Matrix
+    cm = confusion_matrix(y, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=np.unique(y))
+    disp.plot(cmap="Blues", xticks_rotation=45)
+    plt.title(f'Confusion Matrix: {model_name} ({analyte})')
+    plt.tight_layout()
+    plt.savefig(os.path.join(directory, f'ConfusionMatrix_{model_name}_{analyte}.png'), dpi=300)
+    plt.close()
+
+    return {
+        'accuracy': acc,
+        'f1': f1,
+        'model': final_model,
+        'best_params': best_params,
+        'y_true': y,
+        'y_pred': y_pred
     }
