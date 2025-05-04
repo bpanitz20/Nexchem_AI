@@ -85,10 +85,12 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None):
       'y_mean': y_mean
   }
 
-def KFold_Gridsearch_CV(x, y, model, param_grid, n_folds=10, groups=None, scoring='r2'):
+
+
+def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=5, groups=None, scoring=None):
     """
-    Generic Grid Search with Venetian Blind Cross-Validation
-    
+    Generic Grid Search with CV for both regression and classification.
+
     Parameters:
     -----------
     x : np.ndarray
@@ -98,14 +100,16 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, n_folds=10, groups=None, scorin
     model : sklearn estimator
         Model object to evaluate
     param_grid : dict
-        Dictionary of parameters to optimize (e.g., {'C': [1,10], 'gamma': [0.1,1]})
+        Dictionary of parameters to optimize
+    task : str
+        'regression' or 'classification'
     n_folds : int
         Number of cross-validation folds
     groups : array-like, optional
         Group labels for GroupKFold
     scoring : str or callable
-        Scoring metric ('r2' or 'neg_mean_squared_error')
-        
+        Scoring metric ('r2', 'neg_mean_squared_error', 'accuracy', etc.)
+
     Returns:
     --------
     dict with:
@@ -113,47 +117,53 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, n_folds=10, groups=None, scorin
         - best_score: best cross-validation score
         - cv_results: full CV results
         - Y_pred_CV: cross-validated predictions for best model
-        - y_mean: mean of y (for uncentering predictions)
+        - Y_proba_CV: cross-validated probabilities (classification only)
+        - best_estimator: fitted model with best parameters
     """
-    # Mean center y
-    y_mean = np.mean(y, axis=0)
-    y_centered = y - y_mean
-    
-    # Initialize CV strategy
+    y_centered = y
+    y_mean = None
+
+    if task == 'regression':
+        # Mean center y
+        y_mean = np.mean(y, axis=0)
+        y_centered = y - y_mean
+
+    # CV splitter
     if groups is not None:
         cv = GroupKFold(n_splits=n_folds)
-        #print("Using GroupKFold CV")
     else:
-        cv = KFold(n_splits=n_folds, shuffle=False, random_state=None)
-        #print("Using standard KFold CV")
-    
-        # Set up grid search
-        grid_search = GridSearchCV(
-            estimator=model,
-            param_grid=param_grid,
-            cv=cv,
-            scoring=scoring,
-            refit=True,  # Refit best model on full data
-            n_jobs=-1,   # Use all available cores
-            return_train_score=False
-            )
-    
-        # Fit grid search
-        grid_search.fit(x, y_centered)
-    
-        # Get cross-validated predictions for best model
-        Y_pred_CV = cross_val_predict(
-            grid_search.best_estimator_,
-            x,
-            y_centered,
-            cv=cv
-            )
-    
-        return {
-            'best_params': grid_search.best_params_,
-            'best_score': grid_search.best_score_,
-            'cv_results': grid_search.cv_results_,
-            'Y_pred_CV': Y_pred_CV,
-            'y_mean': y_mean,
-            'best_estimator': grid_search.best_estimator_
-            }
+        cv = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+
+    # Grid search setup
+    grid_search = GridSearchCV(
+        estimator=model,
+        param_grid=param_grid,
+        cv=cv,
+        scoring=scoring,
+        refit=True,
+        n_jobs=-1,
+        return_train_score=False
+    )
+
+    # Fit model
+    grid_search.fit(x, y_centered)
+
+    # Get CV predictions
+    if task == 'regression':
+        Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y_centered, cv=cv, method='predict')
+        Y_proba_CV = None
+    else:  # classification
+        Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict')
+        Y_proba_CV = None
+        if hasattr(grid_search.best_estimator_, "predict_proba"):
+            Y_proba_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict_proba')
+
+    return {
+        'best_params': grid_search.best_params_,
+        'best_score': grid_search.best_score_,
+        'cv_results': grid_search.cv_results_,
+        'Y_pred_CV': Y_pred_CV,
+        'Y_proba_CV': Y_proba_CV,
+        'y_mean': y_mean,
+        'best_estimator': grid_search.best_estimator_
+    }

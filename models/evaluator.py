@@ -13,11 +13,10 @@ Created: April 26, 2025
 """
 import os
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 from models.cross_val import KFold_CV, KFold_Gridsearch_CV
 from sklearn.metrics import r2_score, mean_squared_error
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from plotting.plot_regression import (
     plot_pred_vs_actual,
@@ -25,8 +24,13 @@ from plotting.plot_regression import (
     plot_coefficients,
     plot_feature_importance,
     plot_vip_scores
-)
+) 
+from plotting.plot_classifier import (
+    plot_confusion_matrix,
+    plot_roc_curve,
+    plot_decision_boundary,
 
+)
 
 def evaluate_regression_model(x, y, directory, axis, model, model_name, analyte, 
                   param_name=None, param_range=None, param_grid=None, 
@@ -69,7 +73,12 @@ def evaluate_regression_model(x, y, directory, axis, model, model_name, analyte,
     # Determine evaluation mode
     if param_grid is not None:
         mode = 'grid_search'
-        cv_results = KFold_Gridsearch_CV(x, y, model, param_grid)
+        cv_results = KFold_Gridsearch_CV(
+            x=x,
+            y=y,
+            model=model,
+            param_grid=param_grid,
+            task="regression")
     else:
         mode = 'single_param'
         cv_results = KFold_CV(x, y, model, param_name, param_range)
@@ -163,47 +172,54 @@ def evaluate_regression_model(x, y, directory, axis, model, model_name, analyte,
 
 
 def evaluate_classifier(x, y, directory, axis, model, model_name, analyte,
-                        param_name=None, param_range=None, param_grid=None,
-                        cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42)):
+                        param_grid, cv=StratifiedKFold(n_splits=3, shuffle=True, random_state=42)):
     """
-    Evaluates a classifier with grid search or param sweep. Outputs metrics and confusion matrix.
+    Evaluates a classifier with grid search CV. Outputs metrics, confusion matrix, ROC, and decision boundary.
     """
+    # Step 1: Run grid search cross-validation
+    cv_results = KFold_Gridsearch_CV(x, y, model, param_grid, task="classification", n_folds=cv.n_splits)
 
-    # Grid search or single param sweep
-    if param_grid is not None:
-        grid = GridSearchCV(model, param_grid, cv=cv, scoring='accuracy', n_jobs=-1)
-        grid.fit(x, y)
-        final_model = grid.best_estimator_
-        best_params = grid.best_params_
-    else:
-        raise NotImplementedError("Only grid search is implemented for classification for now.")
+    # Step 2: Extract relevant values
+    final_model = cv_results["best_estimator"]
+    best_params = cv_results["best_params"]
+    mean_cv_acc = cv_results["best_score"]
+    std_cv_acc = np.std(cv_results["cv_results"]["mean_test_score"])
+    y_cv_pred = cv_results["Y_pred_CV"]
+    y_cv_proba = cv_results["Y_proba_CV"]
 
-    # Predictions
+    # Step 3: Predict on full train set
     y_pred = final_model.predict(x)
-
-    # Metrics
     acc = accuracy_score(y, y_pred)
     f1 = f1_score(y, y_pred, average='macro')
 
+    # Step 4: Print results
     print(f"\n📊 Classification Metrics for {analyte} ({model_name})")
     print(f"Best Params: {best_params}")
-    print(f"Accuracy: {acc:.3f}")
-    print(f"F1 Score: {f1:.3f}")
+    print(f"Accuracy (Full Train Set): {acc:.3f}")
+    print(f"F1 Score (Full Train Set): {f1:.3f}")
+    print(f"CV Accuracy (Mean ± SD): {mean_cv_acc:.3f} ± {std_cv_acc:.3f}")
 
-    # Confusion Matrix
-    cm = confusion_matrix(y, y_pred)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=np.unique(y))
-    disp.plot(cmap="Blues", xticks_rotation=45)
-    plt.title(f'Confusion Matrix: {model_name} ({analyte})')
-    plt.tight_layout()
-    plt.savefig(os.path.join(directory, f'ConfusionMatrix_{model_name}_{analyte}.png'), dpi=300)
-    plt.close()
+    # Step 5: Plot final model outputs
+    plot_confusion_matrix(y_pred, y, directory, model_name, analyte)
+    if hasattr(final_model, "predict_proba"):
+        y_proba = final_model.predict_proba(x)
+        plot_roc_curve(y, y_proba, directory, model_name, analyte)
+    plot_decision_boundary(x, y, final_model, directory, model_name, analyte)
 
+    # Step 6: Plot CV outputs
+    plot_confusion_matrix(y_cv_pred, y, directory, model_name, analyte, suffix="_CV")
+    if y_cv_proba is not None:
+        plot_roc_curve(y, y_cv_proba, directory, model_name, analyte, suffix="_CV")
+
+    # Step 7: Return all results
     return {
         'accuracy': acc,
         'f1': f1,
+        'cv_accuracy_mean': mean_cv_acc,
+        'cv_accuracy_std': std_cv_acc,
         'model': final_model,
         'best_params': best_params,
         'y_true': y,
-        'y_pred': y_pred
+        'y_pred': y_pred,
+        'y_pred_cv': y_cv_pred
     }
