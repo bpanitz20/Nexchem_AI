@@ -9,14 +9,8 @@ Created on Sat May  3 14:49:27 2025
 import numpy as np
 from models.wrappers import (
     PLS_model,
-    Ridge_model,
-    Lasso_model,
-    RF_model,
     MLPRegressor_model,
-    KNNRegressor_model,
-    SVMRegressor_model,
-    GBR_model,
-    MLPClassifier_model
+    
 )
 
 from preprocessors.labeling import bin_targets
@@ -44,7 +38,8 @@ def run_regression_loop(X, Y_df, results_dir, axis):
 
         # Call whichever models you want here
         PLS_model(X, y, results_dir, axis, analyte=analyte)
-        #MLPRegressor_model(X, y, results_dir, axis, analyte=analyte)
+        MLPRegressor_model(X, y, results_dir, axis, analyte=analyte)
+        #SVMRegressor_model(X, y, results_dir, axis, analyte=analyte)
         # Add more as needed
 
 
@@ -73,5 +68,5 @@ def run_classification_loop(X, Y_df, results_dir, axis, bins=[0, 0.4, 0.7, 1]):
         y_class = bin_targets(y_continuous, bins=bins)
         print("Binned class distribution:", np.unique(y_class, return_counts=True))
 
-        MLPClassifier_model(X, y_class, results_dir, axis, analyte=analyte)
+        #MLPClassifier_model(X, y_class, results_dir, axis, analyte=analyte)
         # Add other classifiers here (SVMClassifier_model, RFClassifier_model, etc.)

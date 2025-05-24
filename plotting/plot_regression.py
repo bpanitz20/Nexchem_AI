@@ -20,6 +20,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.inspection import permutation_importance
 
+def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
+                         best_params=None, optimal_param=None, param_name=None):
+    """
+    Print model performance summary to the console.
+    """
+    print(f"\nFinal Model Metrics for {analyte} ({model_name}):")
+    if optimal_param is not None and param_name:
+        print(f"Optimal {param_name}: {optimal_param}")
+    elif best_params is not None:
+        print("Best parameters:", best_params)
+    print(f"R²_Cal: {final_r2:.4f}")
+    print(f"R²_CV: {final_r2_CV:.4f}")
+    print(f"MSE: {final_mse:.4f}")
+    print(f"MSECV: {final_mse_CV:.4f}")
 
 def plot_pred_vs_actual(y_true, y_pred, directory, title, filename):
     plt.figure(figsize=(8, 8))
@@ -37,25 +51,36 @@ def plot_pred_vs_actual(y_true, y_pred, directory, title, filename):
     plt.show
     plt.close()
 
-def plot_cv_performance(param_range, mean_r2_CV, mean_mse_CV, param_name, analyte, model_name, directory):
-    # Plot R² vs Parameter
-    plt.figure(figsize=(10, 6))
-    plt.plot(param_range, mean_r2_CV, marker='o', linestyle='-', color='b')
+def plot_cv_performance(param_range, r2_cv, r2_cal, mse_cv, rmse_cal, param_name, analyte, model_name, directory):
+    """
+    Plot R2 and RMSE curves for calibration and cross-validation.
+    """
+    # Plot R2
+    plt.figure(figsize=(8, 6))
+    plt.plot(param_range, r2_cv, label='R² CV', marker='o', color='tab:blue')
+    if r2_cal:
+        plt.plot(param_range, r2_cal, label='R² Cal', marker='s', color='tab:cyan')
+    plt.title(f"R² vs {param_name} for {analyte} ({model_name})")
     plt.xlabel(param_name)
-    plt.ylabel('R² Score CV')
-    plt.title(f'R² Score CV vs. {param_name} for {analyte} ({model_name})')
+    plt.ylabel("R²")
     plt.grid(True)
-    plt.savefig(os.path.join(directory, f'R²_vs_{param_name}_{model_name}_{analyte}.png'), dpi=300, bbox_inches="tight")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(directory, f'CV_R2_{model_name}_{analyte}.png'), dpi=300)
     plt.close()
 
-    # Plot MSECV vs Parameter
-    plt.figure(figsize=(10, 6))
-    plt.plot(param_range, mean_mse_CV, marker='o', linestyle='-', color='r')
+    # Plot RMSE
+    plt.figure(figsize=(8, 6))
+    plt.plot(param_range, [m**0.5 for m in mse_cv], label='RMSE CV', marker='o', color='tab:red')
+    if rmse_cal:
+        plt.plot(param_range, rmse_cal, label='RMSE Cal', marker='s', color='tab:pink')
+    plt.title(f"RMSE vs {param_name} for {analyte} ({model_name})")
     plt.xlabel(param_name)
-    plt.ylabel('Mean Squared Error CV (MSECV)')
-    plt.title(f'MSECV vs. {param_name} for {analyte} ({model_name})')
+    plt.ylabel("RMSE")
     plt.grid(True)
-    plt.savefig(os.path.join(directory, f'MSE_vs_{param_name}_{model_name}_{analyte}.png'), dpi=300, bbox_inches="tight")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(directory, f'CV_RMSE_{model_name}_{analyte}.png'), dpi=300)
     plt.close()
 
 def plot_coefficients(axis, coefficients, directory, model_name, analyte):

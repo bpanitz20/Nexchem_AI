@@ -9,10 +9,13 @@ import numpy as np
 from sklearn.model_selection import KFold, GroupKFold, cross_val_score, cross_val_predict
 from sklearn.metrics import mean_squared_error, r2_score, make_scorer
 from sklearn.model_selection import GridSearchCV
+from plotting.plot_regression import plot_cv_performance, plot_pred_vs_actual
+import pandas as pd
+import os
 
-def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None):
+def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None, analyte="", model_name="", directory=""):
     """
-    Generic Venetian Blind Cross-Validation
+    Kfold Cross-Validation
     
     Parameters:
     -----------
@@ -55,28 +58,53 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None):
     
     # Initialize results storage
     mean_r2_CV = []
+    mean_r2_cal = []
     mean_mse_CV = []
+    mean_rmse_cal = []
     all_predictions = {}
     
     for param_value in param_range:
        # Set parameter value
-       model.set_params(**{param_name: param_value})
-       
+       model.set_params(**{param_name: param_value}) 
        # Get cross-validated scores
        r2_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=r2_scorer)
-       mse_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=mse_scorer)
-       
+       mse_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=mse_scorer)      
        # Store mean scores
        mean_r2_CV.append(np.mean(r2_scores))
-       mean_mse_CV.append(np.mean(mse_scores))
-       
+       mean_mse_CV.append(np.mean(mse_scores))     
        # Get cross-validated predictions
        all_predictions[param_value] = cross_val_predict(model, x, y_centered, cv=cv)
    
-    # Find optimal parameter
-    optimal_param = param_range[np.argmax(mean_r2_CV)]
+       # Fit and calculate calibration errors
+       model.fit(x, y_centered)
+       Y_fit = model.predict(x)
+       mse_fit = mean_squared_error(y_centered, Y_fit)
+       r2_fit = r2_score(y_centered, Y_fit)
+       mean_rmse_cal.append(np.sqrt(mse_fit))
+       mean_r2_cal.append(r2_fit) 
+   
+    mean_rmscev = [np.sqrt(m) for m in mean_mse_CV]
+    # Select optimal parameter based on minimal RMSECV–RMSEC gap
+    rmse_gap = np.abs(np.array(mean_rmse_cal) - np.array(mean_rmscev))
+    optimal_idx = np.argmin(rmse_gap)
+    optimal_param = param_range[optimal_idx]
     Y_pred_CV = all_predictions[optimal_param]
    
+    # Plotting
+    if directory:
+        plot_cv_performance(
+            param_range, mean_r2_CV, mean_r2_cal,
+            mean_mse_CV, mean_rmse_cal,
+            param_name, analyte, model_name, directory
+        )
+        plot_pred_vs_actual(
+            y,
+            Y_pred_CV + y_mean,
+            directory,
+            f'CV Predicted vs. Actual for {analyte} ({model_name})',
+            f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
+        )
+    
     return {
       'mean_r2_CV': mean_r2_CV,
       'mean_mse_CV': mean_mse_CV,
@@ -87,54 +115,17 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None):
 
 
 
-def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=5, groups=None, scoring=None):
-    """
-    Generic Grid Search with CV for both regression and classification.
-
-    Parameters:
-    -----------
-    x : np.ndarray
-        Feature matrix
-    y : np.ndarray
-        Target vector
-    model : sklearn estimator
-        Model object to evaluate
-    param_grid : dict
-        Dictionary of parameters to optimize
-    task : str
-        'regression' or 'classification'
-    n_folds : int
-        Number of cross-validation folds
-    groups : array-like, optional
-        Group labels for GroupKFold
-    scoring : str or callable
-        Scoring metric ('r2', 'neg_mean_squared_error', 'accuracy', etc.)
-
-    Returns:
-    --------
-    dict with:
-        - best_params: dictionary of best parameters
-        - best_score: best cross-validation score
-        - cv_results: full CV results
-        - Y_pred_CV: cross-validated predictions for best model
-        - Y_proba_CV: cross-validated probabilities (classification only)
-        - best_estimator: fitted model with best parameters
-    """
+def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, groups=None, scoring=None, analyte="", model_name="", directory=""):
+   
     y_centered = y
     y_mean = None
 
     if task == 'regression':
-        # Mean center y
         y_mean = np.mean(y, axis=0)
         y_centered = y - y_mean
+  
+    cv = GroupKFold(n_splits=n_folds) if groups is not None else KFold(n_splits=n_folds, shuffle=True, random_state=42)
 
-    # CV splitter
-    if groups is not None:
-        cv = GroupKFold(n_splits=n_folds)
-    else:
-        cv = KFold(n_splits=n_folds, shuffle=True, random_state=42)
-
-    # Grid search setup
     grid_search = GridSearchCV(
         estimator=model,
         param_grid=param_grid,
@@ -145,18 +136,31 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=5, g
         return_train_score=False
     )
 
-    # Fit model
     grid_search.fit(x, y_centered)
 
-    # Get CV predictions
     if task == 'regression':
         Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y_centered, cv=cv, method='predict')
         Y_proba_CV = None
-    else:  # classification
+    else:
         Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict')
         Y_proba_CV = None
         if hasattr(grid_search.best_estimator_, "predict_proba"):
             Y_proba_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict_proba')
+
+    # Save results
+    if directory:
+        cv_df = pd.DataFrame(grid_search.cv_results_)
+        out_file = os.path.join(directory, f'GridSearch_results_{model_name}_{analyte}.csv')
+        cv_df.to_csv(out_file, index=False)
+
+        # Plot CV predicted vs actual
+        plot_pred_vs_actual(
+            y,
+            Y_pred_CV + y_mean,
+            directory,
+            f'CV Predicted vs. Actual for {analyte} ({model_name})',
+            f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
+        )
 
     return {
         'best_params': grid_search.best_params_,
