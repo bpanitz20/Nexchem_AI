@@ -7,13 +7,13 @@ Created on Sat Apr 26 18:43:18 2025
 """
 import numpy as np
 from sklearn.model_selection import KFold, GroupKFold, cross_val_score, cross_val_predict
-from sklearn.metrics import mean_squared_error, r2_score, make_scorer
+from sklearn.metrics import mean_squared_error, root_mean_squared_error, r2_score, make_scorer
 from sklearn.model_selection import GridSearchCV
 from plotting.plot_regression import plot_cv_performance, plot_pred_vs_actual
 import pandas as pd
 import os
 
-def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None, analyte="", model_name="", directory=""):
+def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analyte="", model_name="", directory=""):
     """
     Kfold Cross-Validation
     
@@ -47,11 +47,13 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None, anal
     # Initialize CV strategy
     if groups is not None:
         cv = GroupKFold(n_splits=n_folds)
-        #print("Using GroupKFold CV")
+        cv_kwargs = {"groups": groups}
+        print("✅ Using GroupKFold")
     else:
         cv = KFold(n_splits=n_folds, shuffle=False, random_state=None)
-        #print("Using standard KFold CV")
-    
+        cv_kwargs = {}
+        print("Using standard KFold")
+  
     # Initialize KFold and scorers
     r2_scorer = make_scorer(r2_score)
     mse_scorer = make_scorer(mean_squared_error)
@@ -67,13 +69,13 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None, anal
        # Set parameter value
        model.set_params(**{param_name: param_value}) 
        # Get cross-validated scores
-       r2_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=r2_scorer)
-       mse_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=mse_scorer)      
+       r2_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=r2_scorer, **cv_kwargs)
+       mse_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=mse_scorer, **cv_kwargs)      
        # Store mean scores
        mean_r2_CV.append(np.mean(r2_scores))
        mean_mse_CV.append(np.mean(mse_scores))     
        # Get cross-validated predictions
-       all_predictions[param_value] = cross_val_predict(model, x, y_centered, cv=cv)
+       all_predictions[param_value] = cross_val_predict(model, x, y_centered, cv=cv, **cv_kwargs)
    
        # Fit and calculate calibration errors
        model.fit(x, y_centered)
@@ -87,7 +89,8 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=10, groups=None, anal
     # Select optimal parameter based on minimal RMSECV–RMSEC gap
     rmse_gap = np.abs(np.array(mean_rmse_cal) - np.array(mean_rmscev))
     optimal_idx = np.argmin(rmse_gap)
-    optimal_param = param_range[optimal_idx]
+    #optimal_param = param_range[optimal_idx]
+    optimal_param = np.argmin(mean_rmscev)
     Y_pred_CV = all_predictions[optimal_param]
    
     # Plotting
@@ -124,7 +127,15 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
         y_mean = np.mean(y, axis=0)
         y_centered = y - y_mean
   
-    cv = GroupKFold(n_splits=n_folds) if groups is not None else KFold(n_splits=n_folds, shuffle=True, random_state=42)
+   # Initialize CV strategy
+    if groups is not None:
+       cv = GroupKFold(n_splits=n_folds)
+       cv_kwargs = {"groups": groups}
+       print("✅ Using GroupKFold")
+    else:
+       cv = KFold(n_splits=n_folds, shuffle=False, random_state=None)
+       cv_kwargs = {}
+       print("Using standard KFold")
 
     grid_search = GridSearchCV(
         estimator=model,
@@ -136,16 +147,16 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
         return_train_score=False
     )
 
-    grid_search.fit(x, y_centered)
+    grid_search.fit(x, y_centered, groups=groups)
 
     if task == 'regression':
-        Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y_centered, cv=cv, method='predict')
+        Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y_centered, cv=cv, method='predict', **cv_kwargs)
         Y_proba_CV = None
     else:
-        Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict')
+        Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict', **cv_kwargs)
         Y_proba_CV = None
         if hasattr(grid_search.best_estimator_, "predict_proba"):
-            Y_proba_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict_proba')
+            Y_proba_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict_proba', **cv_kwargs)
 
     # Save results
     if directory:
@@ -154,13 +165,15 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
         cv_df.to_csv(out_file, index=False)
 
         # Plot CV predicted vs actual
-        plot_pred_vs_actual(
-            y,
-            Y_pred_CV + y_mean,
-            directory,
-            f'CV Predicted vs. Actual for {analyte} ({model_name})',
-            f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
-        )
+        if task == 'regression':
+            Y_plot = Y_pred_CV + y_mean
+            plot_pred_vs_actual(
+                y,
+                Y_plot,
+                directory,
+                f'CV Predicted vs. Actual for {analyte} ({model_name})',
+                f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
+                )
 
     return {
         'best_params': grid_search.best_params_,

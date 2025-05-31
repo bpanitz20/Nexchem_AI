@@ -16,21 +16,27 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.neural_network import MLPClassifier
 from models.cross_val import KFold_CV
 from models.cross_val import KFold_Gridsearch_CV
+from sklearn.metrics import accuracy_score, f1_score
 from plotting.plot_regression import (
     plot_pred_vs_actual,
     plot_coefficients,
     plot_feature_importance,
     plot_vip_scores,
     print_model_summary
-) 
+)
+from plotting.plot_classifier import (
+    plot_confusion_matrix,
+    plot_roc_curve,
+    plot_decision_boundary
+)
 
-def PLS_model(x, y, directory, axis, max_lv=10, analyte=""):
+def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None):
     param_name = 'n_components'
     param_range = list(range(1, max_lv + 1))
     model = PLSRegression()
 
     # Run CV
-    cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, model_name='PLS', directory=directory)
+    cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, groups=groups, model_name='PLS', directory=directory)
 
     # Final fit with optimal parameter
     model.set_params(**{param_name: cv_results['optimal_param']})
@@ -159,36 +165,11 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, rando
 Classification Model Wrppers
 """
 
-def MLPClassifier_model(x, y, directory, axis, analyte="", param_grid=None, random_state=42):
-    """
-    Wrapper for MLPClassifier using evaluate_classifier()
-
-    Parameters:
-    -----------
-    x : np.ndarray
-        Feature matrix
-    y : array-like
-        Class labels (already binned/coded)
-    directory : str
-        Output directory to save results
-    axis : list
-        Spectral axis
-    analyte : str
-        Target name for labeling
-    param_grid : dict, optional
-        Grid search parameters
-    random_state : int
-        Random seed
-    """
-
-    # Ensure 1D label array
+def MLPClassifier_model(x, y, directory, axis, analyte="", param_grid=None, groups=None, random_state=42):
     y = np.array(y).ravel()
-
-    # Scale X for neural network
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(x)
 
-    # Default hyperparameter grid
     if param_grid is None:
         param_grid = {
             'alpha': [0.01, 0.001],
@@ -197,22 +178,61 @@ def MLPClassifier_model(x, y, directory, axis, analyte="", param_grid=None, rand
             'early_stopping': [True]
         }
 
-    # Base model
     base_model = MLPClassifier(
         max_iter=2000,
         random_state=random_state,
         tol=1e-4,
         verbose=False
     )
-"""
-    return evaluate_classifier(
+
+    # Run GridSearch CV
+    cv_results = KFold_Gridsearch_CV(
         x=X_scaled,
         y=y,
-        directory=directory,
-        axis=axis,
         model=base_model,
-        model_name='MLPClassifier',
+        param_grid=param_grid,
+        task="classification",
+        groups=groups,
         analyte=analyte,
-        param_grid=param_grid
+        model_name="MLPClassifier",
+        directory=directory
     )
-"""
+
+    # Final model and predictions
+    final_model = cv_results["best_estimator"]
+    y_pred = final_model.predict(X_scaled)
+    y_cv_pred = cv_results["Y_pred_CV"]
+    y_cv_proba = cv_results["Y_proba_CV"]
+
+    # Metrics
+    acc = accuracy_score(y, y_pred)
+    f1 = f1_score(y, y_pred, average='macro')
+    acc_cv = accuracy_score(y, y_cv_pred)
+    f1_cv = f1_score(y, y_cv_pred, average='macro')
+
+    print(f"\n📊 MLPClassifier Performance for {analyte}")
+    print(f"Best Params: {cv_results['best_params']}")
+    print(f"Accuracy (Train): {acc:.3f} | F1 (Train): {f1:.3f}")
+    print(f"Accuracy (CV):    {acc_cv:.3f} | F1 (CV): {f1_cv:.3f}")
+
+    # Plots
+    plot_confusion_matrix(y_pred, y, directory, "MLPClassifier", analyte)
+    plot_confusion_matrix(y_cv_pred, y, directory, "MLPClassifier", analyte, suffix="_CV")
+
+    if hasattr(final_model, "predict_proba"):
+        y_proba = final_model.predict_proba(X_scaled)
+        plot_roc_curve(y, y_proba, directory, "MLPClassifier", analyte)
+        if y_cv_proba is not None:
+            plot_roc_curve(y, y_cv_proba, directory, "MLPClassifier", analyte, suffix="_CV")
+
+    plot_decision_boundary(X_scaled, y, final_model, directory, "MLPClassifier", analyte)
+
+    return {
+        "model": final_model,
+        "best_params": cv_results["best_params"],
+        "accuracy": acc,
+        "f1": f1,
+        "cv_accuracy": acc_cv,
+        "cv_f1": f1_cv
+    }
+
