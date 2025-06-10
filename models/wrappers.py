@@ -22,7 +22,8 @@ from plotting.plot_regression import (
     plot_coefficients,
     plot_feature_importance,
     plot_vip_scores,
-    print_model_summary
+    print_model_summary,
+    print_CV_table,
 )
 from plotting.plot_classifier import (
     plot_confusion_matrix,
@@ -30,16 +31,26 @@ from plotting.plot_classifier import (
     plot_decision_boundary
 )
 
-def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None):
+def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_param=None):
     param_name = 'n_components'
     param_range = list(range(1, max_lv + 1))
     model = PLSRegression()
 
     # Run CV
-    cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, groups=groups, model_name='PLS', directory=directory)
+    cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, 
+                          groups=groups, model_name='PLS', directory=directory,
+                          manual_param=manual_param)
 
     # Final fit with optimal parameter
-    model.set_params(**{param_name: cv_results['optimal_param']})
+    if manual_param is not None:
+        print(f"Manual-selected {param_name}: {manual_param}")
+        final_param = manual_param
+    else:
+        final_param = cv_results['optimal_param']
+        print(f"Auto-selected {param_name}: {final_param}")
+
+    # Fit model
+    model.set_params(**{param_name: final_param})
     model.fit(x, y - cv_results['y_mean'])
     Y_pred = model.predict(x)
 
@@ -50,6 +61,18 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None):
     final_mse_CV = cv_results['mean_mse_CV'][param_range.index(cv_results['optimal_param'])]
 
     # Print summary
+    print_CV_table(
+        param_name=param_name,
+        param_range=param_range,
+        r2_cv=cv_results['mean_r2_CV'],
+        r2_cal=cv_results['mean_r2_cal'],
+        mse_cv=cv_results['mean_mse_CV'],
+        rmse_cal=cv_results['mean_rmse_cal'],
+        model_name="PLS",
+        analyte=analyte,
+        directory=directory
+        )
+    
     print_model_summary(
         model_name="PLS",
         analyte=analyte,

@@ -17,7 +17,7 @@ from models.wrappers import (
 from preprocessors.labeling import bin_targets
 
 
-def run_regression_loop(X, Y_df, results_dir, axis, groups=None):
+def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=None):
     """
     Loop through each Y column (analyte) and run regression models.
 
@@ -38,7 +38,7 @@ def run_regression_loop(X, Y_df, results_dir, axis, groups=None):
         y = Y_df[analyte].values.reshape(-1, 1)
 
         # Call whichever models you want here
-        PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups)
+        PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
         #MLPRegressor_model(X, y, results_dir, axis, analyte=analyte, groups=groups)
         #SVMRegressor_model(X, y, results_dir, axis, analyte=analyte)
         # Add more as needed

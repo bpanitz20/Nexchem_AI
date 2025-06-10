@@ -13,7 +13,7 @@ from plotting.plot_regression import plot_cv_performance, plot_pred_vs_actual
 import pandas as pd
 import os
 
-def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analyte="", model_name="", directory=""):
+def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analyte="", model_name="", directory="", manual_param=None):
     """
     Kfold Cross-Validation
     
@@ -86,11 +86,20 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
        mean_r2_cal.append(r2_fit) 
    
     mean_rmscev = [np.sqrt(m) for m in mean_mse_CV]
-    # Select optimal parameter based on minimal RMSECV–RMSEC gap
-    rmse_gap = np.abs(np.array(mean_rmse_cal) - np.array(mean_rmscev))
-    optimal_idx = np.argmin(rmse_gap)
-    #optimal_param = param_range[optimal_idx]
-    optimal_param = np.argmin(mean_rmscev)
+   
+    # Select optimal parameter 
+    rmse_gap = np.abs(np.array(mean_rmse_cal) - np.array(mean_rmscev)) 
+    if manual_param is not None:
+        #print(f"Manual-selected {param_name}: {manual_param}")
+        optimal_param = manual_param
+    else:
+        #autoselect based on minimal RMSECV–RMSEC gap
+        optimal_idx = np.argmin(rmse_gap)
+        optimal_param = param_range[optimal_idx]
+        #optimal_param = np.argmin(mean_rmscev)
+        #print(f"Auto-selected {param_name}: {optimal_param}")
+
+
     Y_pred_CV = all_predictions[optimal_param]
    
     # Plotting
@@ -111,6 +120,8 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
     return {
       'mean_r2_CV': mean_r2_CV,
       'mean_mse_CV': mean_mse_CV,
+      'mean_r2_cal': mean_r2_cal,
+      'mean_rmse_cal': mean_rmse_cal,
       'optimal_param': optimal_param,
       'Y_pred_CV': Y_pred_CV,
       'y_mean': y_mean

@@ -19,6 +19,45 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.inspection import permutation_importance
+import pandas as pd
+
+def print_CV_table(param_name, param_range, r2_cv, r2_cal, mse_cv, rmse_cal,
+                   model_name, analyte, directory):
+    """
+    Print and save cross-validation + calibration performance summary table.
+
+    Parameters:
+    - param_name (str): Name of hyperparameter (e.g., 'n_components', 'alpha')
+    - param_range (list): Parameter values tested
+    - r2_cv (list): R² values from cross-validation
+    - r2_cal (list): R² values for calibration
+    - mse_cv (list): MSE values from cross-validation
+    - rmse_cal (list): RMSE values from calibration
+    - model_name (str): Model name (e.g., 'PLS')
+    - analyte (str): Target name
+    - directory (str): Where to save the CSV
+    """
+   
+    """
+    print(f"\n📊 Cross-Validation Summary for {analyte} ({model_name}):")
+    print(f"{param_name:<12} | R2_CV    | R2_Cal   | RMSE_CV  | RMSE_Cal")
+    print("-" * 60)
+    for val, r2cv, r2cal, mse, rmsec in zip(param_range, r2_cv, r2_cal, mse_cv, rmse_cal):
+        print(f"{val:<12} | {r2cv:.4f}  | {r2cal:.4f}  | {mse**0.5:.4f}  | {rmsec:.4f}")
+    """
+    
+    # Save to CSV
+    df = pd.DataFrame({
+        param_name: param_range,
+        "R2_CV": r2_cv,
+        "R2_Cal": r2_cal,
+        "RMSE_CV": [m**0.5 for m in mse_cv],
+        "RMSE_Cal": rmse_cal
+    })
+    filename = f"CV_Summary_{model_name}_{analyte}.csv"
+    output_path = os.path.join(directory, filename)
+    df.to_csv(output_path, index=False)    
+
 
 def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
                          best_params=None, optimal_param=None, param_name=None):
@@ -32,8 +71,10 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
         print("Best parameters:", best_params)
     print(f"R²_Cal: {final_r2:.4f}")
     print(f"R²_CV: {final_r2_CV:.4f}")
-    print(f"MSE: {final_mse:.4f}")
-    print(f"MSECV: {final_mse_CV:.4f}")
+    print(f"RMSE: {final_mse**0.5:.4f}")
+    print(f"RMSECV: {final_mse_CV**0.5:.4f}")
+    #print(f"MSE: {final_mse:.4f}")
+    #print(f"MSECV: {final_mse_CV:.4f}")
 
 def plot_pred_vs_actual(y_true, y_pred, directory, title, filename):
     plt.figure(figsize=(8, 8))
