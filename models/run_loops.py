@@ -33,16 +33,21 @@ def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=No
         Spectral axis for plotting
     """
     print("\n🚀 Starting regression model training...")
+    model_results = {}
+    
     for analyte in Y_df.columns:
         print(f"\n🔬 Regression for: {analyte}")
         y = Y_df[analyte].values.reshape(-1, 1)
 
         # Call whichever models you want here
-        PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
+        #PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
         #MLPRegressor_model(X, y, results_dir, axis, analyte=analyte, groups=groups)
-        #SVMRegressor_model(X, y, results_dir, axis, analyte=analyte)
         # Add more as needed
+        
+        result = PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
+        model_results[analyte] = result
 
+    return model_results
 
 def run_classification_loop(X, Y_df, results_dir, axis, bins=[0, 0.4, 0.7, 1], groups=None):
     """
