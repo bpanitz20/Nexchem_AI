@@ -48,11 +48,11 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
     if groups is not None:
         cv = GroupKFold(n_splits=n_folds)
         cv_kwargs = {"groups": groups}
-        print("✅ Using GroupKFold")
+        print("Using GroupKFold CV")
     else:
         cv = KFold(n_splits=n_folds, shuffle=False, random_state=None)
         cv_kwargs = {}
-        print("Using standard KFold")
+        print("\nUsing standard KFold CV")
   
     # Initialize KFold and scorers
     r2_scorer = make_scorer(r2_score)

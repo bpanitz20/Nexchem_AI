@@ -20,6 +20,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.inspection import permutation_importance
 import pandas as pd
+from scipy.stats import f
+   
 
 def print_CV_table(param_name, param_range, r2_cv, r2_cal, mse_cv, rmse_cal,
                    model_name, analyte, directory):
@@ -66,7 +68,7 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
     """
     print(f"\nFinal Model Metrics for {analyte} ({model_name}):")
     if optimal_param is not None and param_name:
-        print(f"Optimal {param_name}: {optimal_param}")
+        print(f"{param_name}: {optimal_param}")
     elif best_params is not None:
         print("Best parameters:", best_params)
     print(f"R²_Cal: {final_r2:.4f}")
@@ -182,4 +184,65 @@ def plot_vip_scores(pls_model, x, axis, directory, model_name, analyte):
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(os.path.join(directory, f'VIP_Scores_{model_name}_{analyte}.png'), dpi=300)
+    plt.close()
+    
+    
+def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", sample_ids=None):
+    """
+    Plots Hotelling's T² vs Q-residuals for PLS models, with optional outlier labeling.
+
+    Parameters:
+    -----------
+    pls_model : sklearn.cross_decomposition.PLSRegression
+        Trained PLS model
+    X : np.ndarray
+        Training feature matrix
+    y : np.ndarray
+        Target vector
+    analyte : str
+        Target name for labeling
+    directory : str
+        Directory to save the plot
+    model_name : str
+        Name of the model (default 'PLS')
+    sample_ids : list of str or None
+        Sample IDs to annotate (must match order of X rows)
+    """
+    # Compute scores and loadings
+    T = pls_model.x_scores_
+    P = pls_model.x_loadings_
+    n, A = T.shape  # n = samples, A = components
+
+    # Hotelling's T²
+    T2 = np.sum((T / np.std(T, axis=0))**2, axis=1)
+    T2_threshold = (A * (n - 1) / (n - A)) * f.ppf(0.95, A, n - A)
+
+    # Reconstructed X and Q residuals
+    X_reconstructed = T @ P.T
+    Q_residuals = np.sum((X - X_reconstructed)**2, axis=1)
+    Q_threshold = np.percentile(Q_residuals, 95)
+
+    # Outlier detection
+    outlier_mask = (T2 > T2_threshold) | (Q_residuals > Q_threshold)
+
+    # Plot
+    plt.figure(figsize=(8, 6))
+    plt.scatter(T2, Q_residuals, alpha=0.7, edgecolors='k', label='Samples')
+    plt.axvline(T2_threshold, color='red', linestyle='--', label="T² 95% Limit")
+    plt.axhline(Q_threshold, color='blue', linestyle='--', label="Q Residual 95% Limit")
+
+    # Annotate outliers
+    if sample_ids is not None:
+        for i, is_outlier in enumerate(outlier_mask):
+            if is_outlier:
+                plt.annotate(sample_ids[i], (T2[i], Q_residuals[i]),
+                             textcoords="offset points", xytext=(5, 5), ha='left', fontsize=8)
+
+    plt.xlabel("Hotelling's T²")
+    plt.ylabel("Q Residual")
+    plt.title(f"T² vs Q-Residuals for {analyte} ({model_name})")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(directory, f"T2_vs_Q_{model_name}_{analyte}.png"), dpi=300)
     plt.close()

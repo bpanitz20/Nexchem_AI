@@ -24,6 +24,7 @@ from plotting.plot_regression import (
     plot_vip_scores,
     print_model_summary,
     print_CV_table,
+    plot_t2_q_residuals,
 )
 from plotting.plot_classifier import (
     plot_confusion_matrix,
@@ -31,7 +32,7 @@ from plotting.plot_classifier import (
     plot_decision_boundary
 )
 
-def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_param=None):
+def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_param=None, sample_ids=None):
     param_name = 'n_components'
     param_range = list(range(1, max_lv + 1))
     model = PLSRegression()
@@ -43,11 +44,11 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
 
     # Final fit with optimal parameter
     if manual_param is not None:
-        print(f"Manual-selected {param_name}: {manual_param}")
+        #print(f"Manual-selected {param_name}: {manual_param}")
         final_param = manual_param
     else:
         final_param = cv_results['optimal_param']
-        print(f"Auto-selected {param_name}: {final_param}")
+        #print(f"Auto-selected {param_name}: {final_param}")
 
     # Fit model
     model.set_params(**{param_name: final_param})
@@ -85,6 +86,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
     )
 
     # Plots
+    plot_t2_q_residuals(model, x, y, analyte, directory, model_name="PLS", sample_ids=sample_ids)
     plot_pred_vs_actual(
         y,
         Y_pred + cv_results['y_mean'],
@@ -102,7 +104,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
         'cv_results': cv_results
     }
 
-def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, random_state=42):
+def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, groups=None, random_state=42):
     y = np.array(y).ravel()
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(x)
@@ -179,7 +181,11 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, rando
         'model': final_model,
         'final_r2': final_r2,
         'final_mse': final_mse,
+        'cv_results': {
         'cv_results': cv_results['cv_results'],
+        'best_params': cv_results['best_params'],
+        'y_mean': cv_results['y_mean']  # <- this is missing!
+        },
         'best_params': cv_results['best_params']
     }
 

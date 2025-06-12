@@ -16,9 +16,10 @@ from models.wrappers import (
 
 from preprocessors.labeling import bin_targets
 
-
+"""
 def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=None):
-    """
+    
+    
     Loop through each Y column (analyte) and run regression models.
 
     Parameters:
@@ -31,7 +32,7 @@ def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=No
         Directory to save model outputs
     axis : list
         Spectral axis for plotting
-    """
+   
     print("\n🚀 Starting regression model training...")
     model_results = {}
     
@@ -41,13 +42,50 @@ def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=No
 
         # Call whichever models you want here
         #PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
-        #MLPRegressor_model(X, y, results_dir, axis, analyte=analyte, groups=groups)
+        MLPRegressor_model(X, y, results_dir, axis, analyte=analyte, groups=groups)
         # Add more as needed
         
         result = PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
         model_results[analyte] = result
 
     return model_results
+"""
+
+
+def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=None, sample_ids=None):
+    print("\n🚀 Starting regression model training...")
+    model_results = {}
+
+    for analyte in Y_df.columns:
+        print(f"\n🔬 Regression for: {analyte}")
+        y = Y_df[analyte].values.reshape(-1, 1)
+        model_results[analyte] = {}
+
+        # === Add models here ===
+
+        # PLS
+        pls_result = PLS_model(
+            X, y, results_dir, axis,
+            analyte=analyte,
+            groups=groups,
+            manual_param=manual_param,
+            sample_ids=sample_ids
+        )
+        model_results[analyte]["PLS"] = pls_result
+
+        # MLP
+        mlp_result = MLPRegressor_model(
+            X, y, results_dir, axis,
+            analyte=analyte,
+            groups=groups
+        )
+        model_results[analyte]["MLP"] = mlp_result
+
+        # You can add more models here later (e.g., SVR, RF, Ridge)
+
+    return model_results
+
+
 
 def run_classification_loop(X, Y_df, results_dir, axis, bins=[0, 0.4, 0.7, 1], groups=None):
     """
