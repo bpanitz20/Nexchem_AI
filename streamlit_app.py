@@ -6,82 +6,229 @@ Created on Wed Jun 11 20:39:25 2025
 @author: bp
 """
 
-# streamlit_app.py
-
 import streamlit as st
 import pandas as pd
-import tempfile
+import zipfile
 import os
-from models.wrappers import PLS_model, MLPRegressor_model  # Add more later
-from models.prediction_eval import evaluate_on_prediction_set
-from preprocessors.raman_preprocess import preprocess_pipeline_2
+import tempfile
 from loaders.raman_loader import load_raman
-from preprocessors.aligner import align_xy
-import numpy as np
+import matplotlib.pyplot as plt
+import re
+from preprocessors.raman_preprocess import (
+    preprocess_pipeline_1,
+    preprocess_pipeline_2,
+    group_preprocess,
+    group_preprocess_2
+)
+from collections import defaultdict
 
-st.set_page_config(page_title="NexChem Model Builder", layout="wide")
 
-st.title("🔬 NexChem_AI — Chemometric Modeling Platform")
+st.set_page_config(page_title="NexChem App", layout="wide")
+st.title("🔬 NexChem Chemometric App")
 
-# === Sidebar: File Uploads ===
-st.sidebar.header("Upload Data")
+# === Sidebar Tabs ===
+tab = st.sidebar.radio("Navigation", ["Data Loading", "Preprocessing", "Modeling", "Prediction"], index=0)
 
-raman_files_dir = st.sidebar.file_uploader("Upload Raman .spc files (zipped)", type=["zip"])
-target_file = st.sidebar.file_uploader("Upload GCMS Target File (.xlsx)", type=["xlsx"])
+# === Step 1: Data Loading ===
+if tab == "Data Loading":
+    st.header("Step 1: Load Raw Calibration Data")
 
-# === Sidebar: Model Selection ===
-st.sidebar.header("Model Selection")
-selected_models = st.sidebar.multiselect("Select models to train", ["PLS", "MLP"], default=["PLS"])
+    with st.expander("📁 Upload Calibration Raman Spectra (.zip of .spc files)"):
+        zip_file = st.file_uploader("Upload a .zip file", type="zip")
 
-# === Main Button ===
-if st.sidebar.button("Run Models"):
+    with st.expander("📄 Upload Calibration Y-block (Excel with 'ID' column)"):
+        y_file = st.file_uploader("Upload GCMS target file", type="xlsx")
 
-    if raman_files_dir is None or target_file is None:
-        st.error("Please upload both Raman spectra and GC-MS target files.")
-    else:
+    if zip_file and y_file:
         with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = os.path.join(tmpdir, "raman.zip")
+            zip_path = os.path.join(tmpdir, "calib_data.zip")
             with open(zip_path, "wb") as f:
-                f.write(raman_files_dir.read())
-            os.system(f"unzip -q {zip_path} -d {tmpdir}/raman_data")
+                f.write(zip_file.read())
 
-            spectra_dir = os.path.join(tmpdir, "output_spectra")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(os.path.join(tmpdir, "unzipped"))
+
+            raman_path = os.path.join(tmpdir, "unzipped")
+            spectra_dir = os.path.join(tmpdir, "ignore")
             os.makedirs(spectra_dir, exist_ok=True)
 
-            sample_spectra, shifts, sample_groups = load_raman(f"{tmpdir}/raman_data", spectra_dir)
-            preprocessed_spectra, cropped_axis = preprocess_pipeline_2(sample_spectra, spectra_dir)
+            # ⬇️ Load raw spectra only (no preprocessing yet!)
+            sample_spectra, shifts, sample_groups = load_raman(raman_path, spectra_dir)
 
-            y_df = pd.read_excel(target_file)
+            # Load and validate Y-block
+            y_df = pd.read_excel(y_file)
             y_df.set_index("ID", inplace=True)
 
-            X, Y, sample_ids, _ = align_xy(preprocessed_spectra, y_df)
+            st.success("✅ Raw calibration data loaded.")
+            st.write(f"**Raman spectra loaded**: {len(sample_spectra)} samples")
+            st.write(f"**GCMS targets loaded**: {y_df.shape[0]} rows")
 
-            st.success("✅ Data loaded and aligned")
+            # === Automatically Display Overlay ===
+            overlay_path = os.path.join(spectra_dir, "Overlay_Raw.png")
+            if os.path.exists(overlay_path):
+                st.subheader("📊 Overlay of All Raw Spectra")
+                st.image(overlay_path, use_column_width=True)
+                
+            # === Interactive Raw Overlay ===
+            st.subheader("🔍 Raw Spectra Visualization")
 
-            # === Run models ===
-            results = {}
+            def sort_key(sample_id):
+                match = re.match(r"(\d+)-(\d+)", sample_id)
+                if match:
+                    return int(match.group(1)), int(match.group(2))
+                return sample_id  # fallback
 
-            for model_name in selected_models:
-                st.subheader(f"🧠 {model_name} Model Results")
-                if model_name == "PLS":
-                    result = PLS_model(X, Y.values, tmpdir, cropped_axis, analyte="ALL")
-                elif model_name == "MLP":
-                    result = MLPRegressor_model(X, Y.values, tmpdir, cropped_axis, analyte="ALL")
-                else:
-                    st.warning(f"Model {model_name} not implemented yet.")
-                    continue
+            available_ids = sorted(sample_spectra.keys(), key=sort_key)
+            selected_ids = st.multiselect("Select sample(s) to overlay", available_ids)
 
-                results[model_name] = result
+            if selected_ids:
+                fig, ax = plt.subplots(figsize=(8, 5))
+                for sample_id in selected_ids:
+                    for spectrum in sample_spectra[sample_id]:
+                        ax.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
 
-                # Show metrics
-                st.markdown(f"**R²_Cal**: {result['final_r2']:.3f}")
-                st.markdown(f"**R²_CV**: {result['final_r2_CV']:.3f}")
-                st.markdown(f"**RMSE**: {result['final_mse']**0.5:.3f}")
-                st.markdown(f"**RMSECV**: {result['final_mse_CV']**0.5:.3f}")
+                ax.set_title("Overlay of Selected Raw Spectra")
+                ax.set_xlabel("Raman Shift (cm⁻¹)")
+                ax.set_ylabel("Intensity")
+                ax.legend(loc="best", fontsize="small")
+                st.pyplot(fig)
+           
+            # Store raw data in session for next tab
+            st.session_state["raw_spectra"] = sample_spectra
+            st.session_state["y_block"] = y_df
 
-                # Show plots (just example: predicted vs actual)
-                img_path = os.path.join(tmpdir, f"Pred_vs_Actual_{model_name}_ALL.png")
-                if os.path.exists(img_path):
-                    st.image(img_path, caption="Predicted vs Actual")
 
-            st.success("✅ Modeling complete")
+
+# === TAB 2: Preprocessing ===
+if tab == "Preprocessing":
+    if "raw_spectra" not in st.session_state or "y_block" not in st.session_state:
+        st.warning("Please load calibration data in the 'Data Loading' tab first.")
+    else:
+        st.header("Step 2: Preprocess Spectra")
+
+        from ramanspy import Spectrum
+
+        preprocess_options = {
+            "1. Savgol-SNV-MeanCenter": preprocess_pipeline_2,
+            "2. Savgol-EMSC": preprocess_pipeline_1,
+            "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
+            "4. Average Replicates: Savgol-EMSC": group_preprocess,
+        }
+
+        selected_method = st.selectbox("Choose preprocessing method:", list(preprocess_options.keys()))
+
+        # === Common Parameters ===
+        crop_min = st.number_input("Crop region min (cm⁻¹)", value=800)
+        crop_max = st.number_input("Crop region max (cm⁻¹)", value=1800)
+        crop_region = (crop_min, crop_max)
+
+        # === Method-Specific Parameters ===
+        deriv_order = None
+        emsc_p_order = None
+
+        if selected_method in ["1. Savgol-SNV-MeanCenter", "3. Average Replicates: Savgol-SNV-MeanCenter"]:
+            deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
+
+        if selected_method in ["2. Savgol-EMSC", "4. Average Replicates: Savgol-EMSC"]:
+            deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
+            emsc_p_order = st.number_input("EMSC polynomial order", min_value=1, max_value=6, value=2)
+
+        run_button = st.button("Run Preprocessing")
+
+        if run_button:
+            sample_spectra = st.session_state["raw_spectra"]
+            y_df = st.session_state["y_block"]
+            spectra_dir = "./temp_preprocess"
+            os.makedirs(spectra_dir, exist_ok=True)
+
+            # === Run Preprocessing ===
+            if selected_method == "1. Savgol-SNV-MeanCenter":
+                preprocessed_spectra, cropped_axis = preprocess_pipeline_2(
+                    sample_spectra, spectra_dir,
+                    crop_region=crop_region, derivative_order=deriv_order
+                )
+
+            elif selected_method == "3. Average Replicates: Savgol-SNV-MeanCenter":
+                sample_groups = defaultdict(list)
+                for sample_id in sample_spectra.keys():
+                    group_id = sample_id.split("-")[0]
+                    sample_groups[group_id].append(sample_id)
+                preprocessed_spectra, cropped_axis = group_preprocess_2(
+                    sample_spectra, sample_groups, spectra_dir,
+                    crop_region=crop_region, derivative_order=deriv_order
+                )
+
+            elif selected_method == "2. Savgol-EMSC":
+                preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
+                    sample_spectra, spectra_dir,
+                    crop_region=crop_region,
+                    emsc_p_order=emsc_p_order,
+                    deriv_order=deriv_order
+                )
+
+            elif selected_method == "4. Average Replicates: Savgol-EMSC":
+                sample_groups = defaultdict(list)
+                for sample_id in sample_spectra.keys():
+                    group_id = sample_id.split("-")[0]
+                    sample_groups[group_id].append(sample_id)
+
+                preprocessed_spectra, cropped_axis, group_replicates = group_preprocess(
+                    sample_spectra, sample_groups, spectra_dir,
+                    crop_region=crop_region,
+                    emsc_p_order=emsc_p_order,
+                    deriv_order=deriv_order
+                )
+                st.session_state["group_replicates"] = group_replicates
+
+            st.session_state["preprocessed_spectra"] = preprocessed_spectra
+            st.session_state["cropped_axis"] = cropped_axis
+            st.session_state["preprocessing_done"] = True
+
+            st.success(f"✅ Preprocessing complete using: {selected_method}")
+            st.write(f"Processed {len(preprocessed_spectra)} entries")
+
+        # === Display Results if available ===
+        if st.session_state.get("preprocessing_done", False):
+            preprocessed_spectra = st.session_state["preprocessed_spectra"]
+
+            st.subheader("📊 Overlay of All Preprocessed Spectra")
+            fig, ax = plt.subplots(figsize=(8, 5))
+            for sample_id, spectra in preprocessed_spectra.items():
+                if isinstance(spectra, Spectrum):
+                    spectra = [spectra]  # wrap single spectrum
+                for spectrum in spectra:
+                    ax.plot(spectrum.spectral_axis, spectrum.spectral_data, alpha=0.7)
+            ax.relim()
+            ax.autoscale_view()
+            ax.set_title("Overlay of All Preprocessed Spectra")
+            ax.set_xlabel("Raman Shift (cm⁻¹)")
+            ax.set_ylabel("Intensity")
+            st.pyplot(fig)
+
+            st.subheader("🔍 Preprocessed Spectra Visualization")
+
+            def sort_key(sample_id):
+                import re
+                match = re.match(r"(\d+)-(\d+)", sample_id)
+                if match:
+                    return int(match.group(1)), int(match.group(2))
+                return sample_id
+
+            available_ids = sorted(preprocessed_spectra.keys(), key=sort_key)
+            selected_ids = st.multiselect("Select sample(s) to overlay", available_ids)
+
+            if selected_ids:
+                fig2, ax2 = plt.subplots(figsize=(8, 5))
+                for sample_id in selected_ids:
+                    spectra = preprocessed_spectra[sample_id]
+                    if isinstance(spectra, Spectrum):
+                        spectra = [spectra]
+                    for spectrum in spectra:
+                        ax2.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
+                ax2.relim()
+                ax2.autoscale_view()
+                ax2.set_title("Overlay of Selected Preprocessed Spectra")
+                ax2.set_xlabel("Raman Shift (cm⁻¹)")
+                ax2.set_ylabel("Intensity")
+                ax2.legend(loc="best", fontsize="small")
+                st.pyplot(fig2)

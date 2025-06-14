@@ -16,41 +16,6 @@ from models.wrappers import (
 
 from preprocessors.labeling import bin_targets
 
-"""
-def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=None):
-    
-    
-    Loop through each Y column (analyte) and run regression models.
-
-    Parameters:
-    -----------
-    X : np.ndarray
-        Feature matrix (n_samples, n_features)
-    Y_df : pd.DataFrame
-        Target table with one column per analyte
-    results_dir : str
-        Directory to save model outputs
-    axis : list
-        Spectral axis for plotting
-   
-    print("\n🚀 Starting regression model training...")
-    model_results = {}
-    
-    for analyte in Y_df.columns:
-        print(f"\n🔬 Regression for: {analyte}")
-        y = Y_df[analyte].values.reshape(-1, 1)
-
-        # Call whichever models you want here
-        #PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
-        MLPRegressor_model(X, y, results_dir, axis, analyte=analyte, groups=groups)
-        # Add more as needed
-        
-        result = PLS_model(X, y, results_dir, axis, analyte=analyte, groups=groups, manual_param=manual_param)
-        model_results[analyte] = result
-
-    return model_results
-"""
-
 
 def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=None, sample_ids=None):
     print("\n🚀 Starting regression model training...")
