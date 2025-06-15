@@ -53,7 +53,7 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
         cv = KFold(n_splits=n_folds, shuffle=False, random_state=None)
         cv_kwargs = {}
         print("\nUsing standard KFold CV")
-  
+    print(f"n_folds = {n_folds}")
     # Initialize KFold and scorers
     r2_scorer = make_scorer(r2_score)
     mse_scorer = make_scorer(mean_squared_error)
@@ -147,7 +147,7 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
        cv = KFold(n_splits=n_folds, shuffle=False, random_state=None)
        cv_kwargs = {}
        print("Using standard KFold")
-
+    print(f"n_folds = {n_folds}")
     grid_search = GridSearchCV(
         estimator=model,
         param_grid=param_grid,

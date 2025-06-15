@@ -153,10 +153,12 @@ if tab == "Preprocessing":
                 for sample_id in sample_spectra.keys():
                     group_id = sample_id.split("-")[0]
                     sample_groups[group_id].append(sample_id)
-                preprocessed_spectra, cropped_axis = group_preprocess_2(
-                    sample_spectra, sample_groups, spectra_dir,
-                    crop_region=crop_region, derivative_order=deriv_order
+                preprocessed_spectra, cropped_axis, group_plot_dict = group_preprocess_2(
+                sample_spectra, sample_groups, spectra_dir,
+                crop_region=crop_region, derivative_order=deriv_order
                 )
+                st.session_state["group_plots"] = group_plot_dict  # store the figures for UI
+
 
             elif selected_method == "2. Savgol-EMSC":
                 preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
@@ -172,13 +174,14 @@ if tab == "Preprocessing":
                     group_id = sample_id.split("-")[0]
                     sample_groups[group_id].append(sample_id)
 
-                preprocessed_spectra, cropped_axis, group_replicates = group_preprocess(
+                preprocessed_spectra, cropped_axis, group_replicates, group_plot_dict = group_preprocess(
                     sample_spectra, sample_groups, spectra_dir,
                     crop_region=crop_region,
                     emsc_p_order=emsc_p_order,
                     deriv_order=deriv_order
-                )
-                st.session_state["group_replicates"] = group_replicates
+                    )
+
+                st.session_state["group_plots"] = group_plot_dict
 
             st.session_state["preprocessed_spectra"] = preprocessed_spectra
             st.session_state["cropped_axis"] = cropped_axis
@@ -218,17 +221,111 @@ if tab == "Preprocessing":
             selected_ids = st.multiselect("Select sample(s) to overlay", available_ids)
 
             if selected_ids:
-                fig2, ax2 = plt.subplots(figsize=(8, 5))
-                for sample_id in selected_ids:
+                group_plots = st.session_state.get("group_plots", {})
+
+            for sample_id in selected_ids:
+                if sample_id in group_plots:
+                    # ✅ Display the pre-made matplotlib figure for this group
+                    st.subheader(f"Overlay Plot for Group: {sample_id}")
+                    st.pyplot(group_plots[sample_id])
+                else:
+                    # Fallback: draw individual sample spectra
                     spectra = preprocessed_spectra[sample_id]
                     if isinstance(spectra, Spectrum):
                         spectra = [spectra]
+                    fig2, ax2 = plt.subplots(figsize=(8, 5))
                     for spectrum in spectra:
-                        ax2.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
-                ax2.relim()
-                ax2.autoscale_view()
-                ax2.set_title("Overlay of Selected Preprocessed Spectra")
-                ax2.set_xlabel("Raman Shift (cm⁻¹)")
-                ax2.set_ylabel("Intensity")
-                ax2.legend(loc="best", fontsize="small")
-                st.pyplot(fig2)
+                            ax2.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
+                    ax2.set_title(f"Overlay of Sample: {sample_id}")
+                    ax2.set_xlabel("Raman Shift (cm⁻¹)")
+                    ax2.set_ylabel("Intensity")
+                    ax2.legend(loc="best", fontsize="small")
+                    st.pyplot(fig2)
+
+
+# === TAB 3: Modeling ===
+if tab == "Modeling":
+    if "preprocessed_spectra" not in st.session_state or "y_block" not in st.session_state:
+        st.warning("Please run preprocessing first in the 'Preprocessing' tab.")
+    else:
+        from models.run_loops import run_regression_loop
+        from preprocessors.aligner import align_xy, align_group_xy
+
+        st.header("Step 3: Build Regression Model")
+
+        # === Model selection ===
+        model_name = st.selectbox("Choose regression model:", ["PLS", "MLP"])
+
+        # === Cross-validation & hyperparameters ===
+        manual_param = None
+        n_folds = None
+        param_grid = None
+
+        use_group_kfold = st.checkbox("Use Grouped K-Fold CV?", value=False)
+
+        if model_name == "PLS":
+            enable_manual_param = st.checkbox("Manually select number of PLS components?", value=False)
+            if enable_manual_param:
+                manual_param = st.number_input("Manual n_components:", min_value=1, max_value=20, value=5)
+            n_folds = st.number_input("Number of K-Folds (PLS)", min_value=2, max_value=20, value=8)
+
+        elif model_name == "MLP":
+            enable_grid_customization = st.checkbox("Customize MLP Parameter Grid?", value=False)
+            n_folds = st.number_input("Number of K-Folds (MLP)", min_value=2, max_value=20, value=8)
+
+            if enable_grid_customization:
+                hidden_layer_sizes = st.multiselect(
+                    "Hidden layer sizes:",
+                    options=[(50,), (100,), (50, 50), (100, 50), (50, 100)],
+                    default=[(50,), (100,)]
+                )
+                alpha_values = st.multiselect("Alpha values:", options=[0.1, 0.01, 0.001, 0.0001], default=[0.01, 0.001])
+                learning_rates = st.multiselect("Learning rates:", options=[0.0001, 0.001, 0.005, 0.01], default=[0.001])
+
+                param_grid = {
+                    'hidden_layer_sizes': hidden_layer_sizes,
+                    'activation': ['relu'],
+                    'alpha': alpha_values,
+                    'learning_rate_init': learning_rates,
+                    'early_stopping': [True],
+                    'solver': ['adam']
+                }
+
+        # === Start modeling ===
+        if st.button("Train Model"):
+            raw_X = st.session_state["preprocessed_spectra"]
+            raw_Y = st.session_state["y_block"]
+            axis = st.session_state["cropped_axis"]
+            sample_groups = st.session_state.get("sample_groups")
+
+            # Determine whether replicates or group-averaged spectra were used
+            first_val = list(raw_X.values())[0]
+            is_group_avg = not isinstance(first_val, list)
+
+            if is_group_avg:
+                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups = align_group_xy(raw_X, raw_Y)
+            else:
+                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups = align_xy(raw_X, raw_Y)
+
+            results_dir = "./Model_Results"
+            os.makedirs(results_dir, exist_ok=True)
+
+            model_results = run_regression_loop(
+                filtered_X,
+                filtered_Y,
+                results_dir,
+                axis,
+                groups=filtered_groups if use_group_kfold else None,
+                model_name=model_name,
+                param_grid=param_grid,
+                manual_param=manual_param,
+                n_folds=n_folds,
+                sample_ids=filtered_sample_ids
+            )
+
+            st.success("✅ Model training complete!")
+            for analyte in raw_Y.columns:
+                plot_path = os.path.join(results_dir, f"Final_Pred_vs_Actual_{model_name}_{analyte}.png")
+                if os.path.exists(plot_path):
+                    st.subheader(f"Prediction Plot: {analyte}")
+                    st.image(plot_path, use_container_width=True)

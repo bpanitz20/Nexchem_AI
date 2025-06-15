@@ -32,7 +32,7 @@ from plotting.plot_classifier import (
     plot_decision_boundary
 )
 
-def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_param=None, sample_ids=None):
+def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_param=None, sample_ids=None, n_folds=8):
     param_name = 'n_components'
     param_range = list(range(1, max_lv + 1))
     model = PLSRegression()
@@ -40,7 +40,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
     # Run CV
     cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, 
                           groups=groups, model_name='PLS', directory=directory,
-                          manual_param=manual_param)
+                          manual_param=manual_param, n_folds=n_folds)
 
     # Final fit with optimal parameter
     if manual_param is not None:
@@ -104,7 +104,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
         'cv_results': cv_results
     }
 
-def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, groups=None, random_state=42):
+def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, groups=None, random_state=42, n_folds=8):
     y = np.array(y).ravel()
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(x)
@@ -136,7 +136,9 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, group
         task="regression",
         analyte=analyte,
         model_name="MLP",
-        directory=directory
+        groups=groups,
+        directory=directory,
+        n_folds=n_folds
     )
 
     final_model = cv_results['best_estimator']
