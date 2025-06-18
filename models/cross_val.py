@@ -101,7 +101,10 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
 
 
     Y_pred_CV = all_predictions[optimal_param]
-   
+    cv_r2_plot_path = os.path.join(directory, f'CV_R2_{model_name}_{analyte}.png')
+    cv_rmse_plot_path = os.path.join(directory, f'CV_RMSE_{model_name}_{analyte}.png')
+    cv_pred_path = os.path.join(directory, f'CV_Pred_vs_Actual_{model_name}_{analyte}.png')
+
     # Plotting
     if directory:
         plot_cv_performance(
@@ -124,7 +127,10 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
       'mean_rmse_cal': mean_rmse_cal,
       'optimal_param': optimal_param,
       'Y_pred_CV': Y_pred_CV,
-      'y_mean': y_mean
+      'y_mean': y_mean,
+      'cv_r2_plot_path': cv_r2_plot_path,
+      'cv_rmse_plot_path': cv_rmse_plot_path,
+      'cv_pred_plot_path': cv_pred_path
   }
 
 
@@ -168,12 +174,16 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
         Y_proba_CV = None
         if hasattr(grid_search.best_estimator_, "predict_proba"):
             Y_proba_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict_proba', **cv_kwargs)
+    
+    cv_pred_path = os.path.join(directory, f'CV_Pred_vs_Actual_{model_name}_{analyte}.png')
 
     # Save results
     if directory:
         cv_df = pd.DataFrame(grid_search.cv_results_)
         out_file = os.path.join(directory, f'GridSearch_results_{model_name}_{analyte}.csv')
         cv_df.to_csv(out_file, index=False)
+        cv_table_df = cv_df.sort_values(by="mean_test_score", ascending=False)  # Optional sort
+
 
         # Plot CV predicted vs actual
         if task == 'regression':
@@ -193,5 +203,7 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
         'Y_pred_CV': Y_pred_CV,
         'Y_proba_CV': Y_proba_CV,
         'y_mean': y_mean,
+        'cv_pred_plot_path': cv_pred_path,
+        'cv_table_df': cv_table_df,
         'best_estimator': grid_search.best_estimator_
     }

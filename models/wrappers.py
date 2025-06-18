@@ -4,6 +4,7 @@
 Regression Model Wrappers
 """
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.cross_decomposition import PLSRegression
@@ -73,8 +74,16 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
         analyte=analyte,
         directory=directory
         )
+    rmse_cv = [mse**0.5 for mse in cv_results['mean_mse_CV']]
+    cv_table_df = pd.DataFrame({
+    param_name: param_range,
+    "R²_Cal": cv_results['mean_r2_cal'],
+    "R²_CV": cv_results['mean_r2_CV'],
+    "RMSE_CV": rmse_cv,
+    "RMSE_Cal": cv_results['mean_rmse_cal']
+    })
     
-    print_model_summary(
+    summary_string=print_model_summary(
         model_name="PLS",
         analyte=analyte,
         final_r2=final_r2,
@@ -101,7 +110,12 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
         'model': model,
         'final_r2': final_r2,
         'final_mse': final_mse,
-        'cv_results': cv_results
+        'cv_results': cv_results,
+        'cv_table_df': cv_table_df,
+        'cv_r2_plot_path': cv_results['cv_r2_plot_path'],
+        'cv_rmse_plot_path': cv_results['cv_rmse_plot_path'],
+        'cv_pred_plot_path': cv_results['cv_pred_plot_path'],
+        'summary': summary_string
     }
 
 def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, groups=None, random_state=42, n_folds=8):
@@ -151,7 +165,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, group
     final_r2_CV = r2_score(y, Y_pred_CV)
     final_mse_CV = mean_squared_error(y, Y_pred_CV)
 
-    print_model_summary(
+    summary_string=print_model_summary(
         model_name="MLP",
         analyte=analyte,
         final_r2=final_r2,
@@ -188,7 +202,10 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, group
         'best_params': cv_results['best_params'],
         'y_mean': cv_results['y_mean']  # <- this is missing!
         },
-        'best_params': cv_results['best_params']
+        'best_params': cv_results['best_params'],
+        'cv_pred_plot_path': cv_results['cv_pred_plot_path'],
+        'cv_table_df': cv_results['cv_table_df'],
+        'summary': summary_string
     }
 
 

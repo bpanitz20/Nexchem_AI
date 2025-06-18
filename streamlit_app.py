@@ -7,6 +7,7 @@ Created on Wed Jun 11 20:39:25 2025
 """
 
 import streamlit as st
+import io
 import pandas as pd
 import zipfile
 import os
@@ -18,7 +19,8 @@ from preprocessors.raman_preprocess import (
     preprocess_pipeline_1,
     preprocess_pipeline_2,
     group_preprocess,
-    group_preprocess_2
+    group_preprocess_2,
+    avg_y_block
 )
 from collections import defaultdict
 
@@ -67,7 +69,7 @@ if tab == "Data Loading":
             overlay_path = os.path.join(spectra_dir, "Overlay_Raw.png")
             if os.path.exists(overlay_path):
                 st.subheader("📊 Overlay of All Raw Spectra")
-                st.image(overlay_path, use_column_width=True)
+                st.image(overlay_path, width=800)
                 
             # === Interactive Raw Overlay ===
             st.subheader("🔍 Raw Spectra Visualization")
@@ -82,22 +84,25 @@ if tab == "Data Loading":
             selected_ids = st.multiselect("Select sample(s) to overlay", available_ids)
 
             if selected_ids:
-                fig, ax = plt.subplots(figsize=(8, 5))
+                fig, ax = plt.subplots(figsize=(8, 6))  
                 for sample_id in selected_ids:
                     for spectrum in sample_spectra[sample_id]:
                         ax.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
-
+            
                 ax.set_title("Overlay of Selected Raw Spectra")
                 ax.set_xlabel("Raman Shift (cm⁻¹)")
                 ax.set_ylabel("Intensity")
                 ax.legend(loc="best", fontsize="small")
-                st.pyplot(fig)
-           
-            # Store raw data in session for next tab
+            
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                buf.seek(0)
+                st.image(buf, caption=None, width=800)  # Control actual width in pixels
+                plt.close(fig)
+
+            # ✅ Store raw data for next step
             st.session_state["raw_spectra"] = sample_spectra
             st.session_state["y_block"] = y_df
-
-
 
 # === TAB 2: Preprocessing ===
 if tab == "Preprocessing":
@@ -158,7 +163,9 @@ if tab == "Preprocessing":
                 crop_region=crop_region, derivative_order=deriv_order
                 )
                 st.session_state["group_plots"] = group_plot_dict  # store the figures for UI
-
+                group_avg_Y = avg_y_block(st.session_state["y_block"])
+                st.session_state["y_block"] = group_avg_Y
+                
 
             elif selected_method == "2. Savgol-EMSC":
                 preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
@@ -182,6 +189,9 @@ if tab == "Preprocessing":
                     )
 
                 st.session_state["group_plots"] = group_plot_dict
+                group_avg_Y = avg_y_block(st.session_state["y_block"])
+                st.session_state["y_block"] = group_avg_Y
+  
 
             st.session_state["preprocessed_spectra"] = preprocessed_spectra
             st.session_state["cropped_axis"] = cropped_axis
@@ -198,15 +208,21 @@ if tab == "Preprocessing":
             fig, ax = plt.subplots(figsize=(8, 5))
             for sample_id, spectra in preprocessed_spectra.items():
                 if isinstance(spectra, Spectrum):
-                    spectra = [spectra]  # wrap single spectrum
+                    spectra = [spectra]
                 for spectrum in spectra:
                     ax.plot(spectrum.spectral_axis, spectrum.spectral_data, alpha=0.7)
+            
             ax.relim()
             ax.autoscale_view()
             ax.set_title("Overlay of All Preprocessed Spectra")
             ax.set_xlabel("Raman Shift (cm⁻¹)")
             ax.set_ylabel("Intensity")
-            st.pyplot(fig)
+            
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+            buf.seek(0)
+            st.image(buf, width=800)
+            plt.close(fig)
 
             st.subheader("🔍 Preprocessed Spectra Visualization")
 
@@ -222,26 +238,39 @@ if tab == "Preprocessing":
 
             if selected_ids:
                 group_plots = st.session_state.get("group_plots", {})
-
-            for sample_id in selected_ids:
-                if sample_id in group_plots:
-                    # ✅ Display the pre-made matplotlib figure for this group
-                    st.subheader(f"Overlay Plot for Group: {sample_id}")
-                    st.pyplot(group_plots[sample_id])
+            
+                # Check if all selected samples are group-averaged
+                if all(sample_id in group_plots for sample_id in selected_ids):
+                    # Option: show individual group plots stacked with fixed width
+                    for sample_id in selected_ids:
+                        st.subheader(f"Overlay Plot for Group: {sample_id}")
+                        fig = group_plots[sample_id]
+                        
+                        buf = io.BytesIO()
+                        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                        buf.seek(0)
+                        st.image(buf, caption=None, width=800)
+                        plt.close(fig)  # optional cleanup
                 else:
-                    # Fallback: draw individual sample spectra
-                    spectra = preprocessed_spectra[sample_id]
-                    if isinstance(spectra, Spectrum):
-                        spectra = [spectra]
-                    fig2, ax2 = plt.subplots(figsize=(8, 5))
-                    for spectrum in spectra:
-                            ax2.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
-                    ax2.set_title(f"Overlay of Sample: {sample_id}")
-                    ax2.set_xlabel("Raman Shift (cm⁻¹)")
-                    ax2.set_ylabel("Intensity")
-                    ax2.legend(loc="best", fontsize="small")
-                    st.pyplot(fig2)
-
+                    # Overlay individual spectra
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    for sample_id in selected_ids:
+                        spectra = preprocessed_spectra[sample_id]
+                        if isinstance(spectra, Spectrum):
+                            spectra = [spectrum]
+                        for spectrum in spectra:
+                            ax.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
+            
+                    ax.set_title("Overlay of Selected Preprocessed Spectra")
+                    ax.set_xlabel("Raman Shift (cm⁻¹)")
+                    ax.set_ylabel("Intensity")
+                    ax.legend(loc="best", fontsize="small")
+            
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                    buf.seek(0)
+                    st.image(buf, caption=None, width=800)
+                    plt.close(fig)
 
 # === TAB 3: Modeling ===
 if tab == "Modeling":
@@ -254,25 +283,22 @@ if tab == "Modeling":
         st.header("Step 3: Build Regression Model")
 
         # === Model selection ===
-        model_name = st.selectbox("Choose regression model:", ["PLS", "MLP"])
+        st.subheader("Choose Regression Model")
+        model_name = st.selectbox("Model Type:", ["PLS", "MLP"])
 
-        # === Cross-validation & hyperparameters ===
         manual_param = None
+        param_range = None
         n_folds = None
         param_grid = None
-
-        use_group_kfold = st.checkbox("Use Grouped K-Fold CV?", value=False)
 
         if model_name == "PLS":
             enable_manual_param = st.checkbox("Manually select number of PLS components?", value=False)
             if enable_manual_param:
                 manual_param = st.number_input("Manual n_components:", min_value=1, max_value=20, value=5)
-            n_folds = st.number_input("Number of K-Folds (PLS)", min_value=2, max_value=20, value=8)
+            param_range = list(range(1, 11))
 
         elif model_name == "MLP":
             enable_grid_customization = st.checkbox("Customize MLP Parameter Grid?", value=False)
-            n_folds = st.number_input("Number of K-Folds (MLP)", min_value=2, max_value=20, value=8)
-
             if enable_grid_customization:
                 hidden_layer_sizes = st.multiselect(
                     "Hidden layer sizes:",
@@ -291,6 +317,11 @@ if tab == "Modeling":
                     'solver': ['adam']
                 }
 
+        # === Cross-validation options ===
+        st.subheader("Choose Cross-Validation")
+        use_group_kfold = st.checkbox("Use Grouped K-Fold CV?", value=False)
+        n_folds = st.number_input("Number of K-Folds:", min_value=2, max_value=20, value=8)
+
         # === Start modeling ===
         if st.button("Train Model"):
             raw_X = st.session_state["preprocessed_spectra"]
@@ -303,9 +334,9 @@ if tab == "Modeling":
             is_group_avg = not isinstance(first_val, list)
 
             if is_group_avg:
-                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups = align_group_xy(raw_X, raw_Y)
+                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, unmatched_ids = align_group_xy(raw_X, raw_Y)
             else:
-                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups = align_xy(raw_X, raw_Y)
+                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, unmatched_ids = align_xy(raw_X, raw_Y)
 
             results_dir = "./Model_Results"
             os.makedirs(results_dir, exist_ok=True)
@@ -317,15 +348,71 @@ if tab == "Modeling":
                 axis,
                 groups=filtered_groups if use_group_kfold else None,
                 model_name=model_name,
+                param_range=param_range,
                 param_grid=param_grid,
                 manual_param=manual_param,
                 n_folds=n_folds,
                 sample_ids=filtered_sample_ids
             )
 
+            # ✅ Store results in session_state so they're retained on rerun
+            st.session_state["model_results"] = model_results
+            st.session_state["model_built"] = True
             st.success("✅ Model training complete!")
+            
+      
+            # === Model Summary ===
+            st.subheader("Model Summary")
+            
+            # Show unmatched sample IDs (if any)
+            if unmatched_ids:
+                st.warning(f"❗ Unmatched Sample IDs: {', '.join(sorted(unmatched_ids))}")
+                   
+                        
+            # Show per-analyte summary
             for analyte in raw_Y.columns:
-                plot_path = os.path.join(results_dir, f"Final_Pred_vs_Actual_{model_name}_{analyte}.png")
-                if os.path.exists(plot_path):
-                    st.subheader(f"Prediction Plot: {analyte}")
-                    st.image(plot_path, use_container_width=True)
+                result = model_results[analyte]
+                summary = result.get("summary", None)
+                if summary:
+                    st.markdown(summary)
+            
+            
+            # CV Results Section
+            st.subheader("Cross Validation Results")
+            
+            for analyte in raw_Y.columns:
+                result = model_results[analyte]
+            
+                # === Show CV table ===
+                cv_table = result.get("cv_table_df")
+                if cv_table is not None:
+                    st.markdown(f"**{analyte}**")
+                    st.dataframe(cv_table.style.format(precision=4))
+            
+                # === Collect available plots ===
+                plot_paths = []
+                captions = []
+            
+                if model_name != "MLP":
+                    r2_plot = result.get("cv_r2_plot_path")
+                    rmse_plot = result.get("cv_rmse_plot_path")
+                    if r2_plot and os.path.exists(r2_plot):
+                        plot_paths.append(r2_plot)
+                        captions.append(f"CV R² vs n_components for {analyte}")
+                    if rmse_plot and os.path.exists(rmse_plot):
+                        plot_paths.append(rmse_plot)
+                        captions.append(f"CV RMSE vs n_components for {analyte}")
+            
+                pred_plot = result.get("cv_pred_plot_path")
+                if pred_plot and os.path.exists(pred_plot):
+                    plot_paths.append(pred_plot)
+                    captions.append(f"CV Predicted vs Actual for {analyte}")
+            
+                # === Display plots in flexible columns ===
+                if plot_paths:
+                    cols = st.columns(len(plot_paths))
+                    for i, (col, path) in enumerate(zip(cols, plot_paths)):
+                        with col:
+                            st.image(path, width=400)
+                             
+                                         

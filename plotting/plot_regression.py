@@ -60,6 +60,29 @@ def print_CV_table(param_name, param_range, r2_cv, r2_cal, mse_cv, rmse_cal,
     output_path = os.path.join(directory, filename)
     df.to_csv(output_path, index=False)    
 
+def format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
+                         best_params=None, optimal_param=None, param_name=None):
+    """
+    Returns a markdown-formatted summary string of model performance.
+    """
+    if model_name == "MLP":
+        summary = f"""**🔬 {analyte} ({model_name})**  
+• **Best parameters:** `{best_params}`  
+• R²_Cal: `{final_r2:.4f}`  
+• R²_CV: `{final_r2_CV:.4f}`  
+• RMSE: `{final_mse**0.5:.4f}`  
+• RMSECV: `{final_mse_CV**0.5:.4f}`  
+"""
+    else:
+        summary = f"""**🔬 {analyte} ({model_name})**  
+• {param_name}: `{optimal_param}`  
+• R²_Cal: `{final_r2:.4f}`  
+• R²_CV: `{final_r2_CV:.4f}`  
+• RMSE: `{final_mse**0.5:.4f}`  
+• RMSECV: `{final_mse_CV**0.5:.4f}`  
+"""
+    return summary
+
 
 def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
                          best_params=None, optimal_param=None, param_name=None):
@@ -77,9 +100,12 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
     print(f"RMSECV: {final_mse_CV**0.5:.4f}")
     #print(f"MSE: {final_mse:.4f}")
     #print(f"MSECV: {final_mse_CV:.4f}")
+    return format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
+                                best_params, optimal_param, param_name)
+
 
 def plot_pred_vs_actual(y_true, y_pred, directory, title, filename):
-    plt.figure(figsize=(8, 8))
+    plt.figure(figsize=(8, 6))
     plt.scatter(y_true, y_pred, color='blue', alpha=0.6, label='Data')
     plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 
              color='red', linestyle='--', label='Ideal')
