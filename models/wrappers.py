@@ -5,6 +5,7 @@ Regression Model Wrappers
 """
 import numpy as np
 import pandas as pd
+import os
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.cross_decomposition import PLSRegression
@@ -115,7 +116,12 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
         'cv_r2_plot_path': cv_results['cv_r2_plot_path'],
         'cv_rmse_plot_path': cv_results['cv_rmse_plot_path'],
         'cv_pred_plot_path': cv_results['cv_pred_plot_path'],
-        'summary': summary_string
+        'summary': summary_string,
+        'vip_plot_path': os.path.join(directory, f"VIP_Scores_PLS_{analyte}.png"),
+        'coef_plot_path': os.path.join(directory, f"PLS_Coefficients_{analyte}.png"),
+        't2_plot_path': os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"),
+        'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_PLS_{analyte}.png"),
+            
     }
 
 def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, groups=None, random_state=42, n_folds=8):
@@ -205,7 +211,9 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, group
         'best_params': cv_results['best_params'],
         'cv_pred_plot_path': cv_results['cv_pred_plot_path'],
         'cv_table_df': cv_results['cv_table_df'],
-        'summary': summary_string
+        'summary': summary_string,
+        'feature_importance_path': os.path.join(directory, f"Feature_Importance_MLP_{analyte}.png"),
+        'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_MLP_{analyte}.png")
     }
 
 

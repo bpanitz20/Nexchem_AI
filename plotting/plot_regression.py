@@ -159,7 +159,7 @@ def plot_coefficients(axis, coefficients, directory, model_name, analyte):
     plt.ylabel('Regression Coefficients')
     plt.title(f'Regression Coefficients ({model_name})')
     plt.grid(True)
-    plt.savefig(os.path.join(directory, f'Coefficients_{model_name}_{analyte}.png'), dpi=300, bbox_inches="tight")
+    plt.savefig(os.path.join(directory, f"PLS_Coefficients_{analyte}.png"), dpi=300, bbox_inches="tight")
     plt.close()
 
 def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, top_n=20):
@@ -250,7 +250,7 @@ def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", s
 
     # Outlier detection
     outlier_mask = (T2 > T2_threshold) | (Q_residuals > Q_threshold)
-
+    
     # Plot
     plt.figure(figsize=(8, 6))
     plt.scatter(T2, Q_residuals, alpha=0.7, edgecolors='k', label='Samples')
@@ -270,5 +270,5 @@ def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", s
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(os.path.join(directory, f"T2_vs_Q_{model_name}_{analyte}.png"), dpi=300)
+    plt.savefig(os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"), dpi=300)
     plt.close()

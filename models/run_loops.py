@@ -112,7 +112,8 @@ def run_regression_loop(
                 X, y, results_dir, axis,
                 analyte=analyte,
                 manual_param=manual_param,
-                groups=groups, n_folds=n_folds  
+                groups=groups, n_folds=n_folds,
+                sample_ids=sample_ids
             )
 
         elif model_name == "MLP":

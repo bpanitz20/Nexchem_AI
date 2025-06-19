@@ -415,4 +415,44 @@ if tab == "Modeling":
                         with col:
                             st.image(path, width=400)
                              
-                                         
+            # === Loadings / Variable Importance Section ===
+            st.subheader("📉 Loadings & Variables")
+            
+            for analyte in raw_Y.columns:
+                result = model_results[analyte]
+            
+                if model_name == "PLS":
+                    # Collect plot paths
+                    vip = result.get("vip_plot_path")
+                    coef = result.get("coef_plot_path")
+                    t2q = result.get("t2_plot_path")
+                    final_pred = result.get("final_pred_plot_path")
+            
+                    st.markdown(f"**🔬 {analyte} (PLS)**")
+            
+                    plot_paths = [t2q, final_pred, coef, vip]
+                    plot_labels = ["T² vs Q Residuals", "Final Predicted vs Actual", "Regression Coefficients", "VIP Scores"]
+            
+                    # Layout in 2x2 grid
+                    rows = [st.columns(2), st.columns(2)]
+                    for i, (path, label) in enumerate(zip(plot_paths, plot_labels)):
+                        if path and os.path.exists(path):
+                            col = rows[i // 2][i % 2]
+                            with col:
+                                st.image(path, width=500)
+                elif model_name == "MLP":
+                    st.markdown(f"**🔬 {analyte} (MLP)**")
+                
+                    final_pred = result.get("final_pred_plot_path")
+                    feat_imp = result.get("feature_importance_path")
+                
+                    plot_paths = [final_pred, feat_imp]
+                    plot_labels = ["Final Predicted vs Actual", "Feature Importance"]
+                
+                    rows = [st.columns(2)]
+                    for i, (path, label) in enumerate(zip(plot_paths, plot_labels)):
+                        if path and os.path.exists(path):
+                            col = rows[0][i % 2]
+                            with col:
+                                st.image(path, use_column_width=True)
+                                                      
