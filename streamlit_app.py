@@ -65,6 +65,10 @@ if tab == "Data Loading":
             st.write(f"**Raman spectra loaded**: {len(sample_spectra)} samples")
             st.write(f"**GCMS targets loaded**: {y_df.shape[0]} rows")
 
+            # Optional: Display Y-block data
+            with st.expander("🔬 Preview GC-MS Y-block"):
+                st.dataframe(y_df, use_container_width=True)
+
             # === Automatically Display Overlay ===
             overlay_path = os.path.join(spectra_dir, "Overlay_Raw.png")
             if os.path.exists(overlay_path):
@@ -175,7 +179,7 @@ if tab == "Preprocessing":
                     deriv_order=deriv_order
                 )
 
-            elif selected_method == "4. Average Replicates: Savgol-EMSC":
+            elif selected_method == "4. Average Replicates: Savgol-EMSC-MeanCenter":
                 sample_groups = defaultdict(list)
                 for sample_id in sample_spectra.keys():
                     group_id = sample_id.split("-")[0]
