@@ -107,6 +107,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
     plot_coefficients(axis, model.coef_, directory, "PLS", analyte)
     plot_vip_scores(model, x, axis, directory, "PLS", analyte)
 
+
     return {
         'model': model,
         'final_r2': final_r2,
@@ -292,3 +293,93 @@ def MLPClassifier_model(x, y, directory, axis, analyte="", param_grid=None, grou
         "cv_f1": f1_cv
     }
 
+
+
+
+
+
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+
+def PCA_model(X, classes, axis, directory, n_components=5, show_ellipses=True, ellipse_alpha=0.2):
+    """
+    PCA with PC1 vs PC2 plot, including class-colored 95% confidence ellipses.
+    
+    Parameters:
+    -----------
+    X : np.ndarray
+        Feature matrix (preprocessed)
+    classes : list or np.ndarray
+        Class labels
+    axis : list or np.ndarray
+        Spectral axis (reserved for future use)
+    directory : str
+        Output directory
+    n_components : int
+        Number of PCA components to compute
+    show_ellipses : bool
+        Whether to show 95% confidence ellipses
+    ellipse_alpha : float
+        Transparency of the ellipses (0–1)
+    """
+
+    # Standardize
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Run PCA
+    pca = PCA(n_components=n_components)
+    X_pca = pca.fit_transform(X_scaled)
+    var_ratio = pca.explained_variance_ratio_
+
+    # Plot setup
+    plt.figure(figsize=(8, 6))
+    unique_classes = np.unique(classes)
+    color_map = plt.get_cmap('tab10')  # or 'Set1', 'Dark2', etc.
+
+    for i, cls in enumerate(unique_classes):
+        idx = np.array(classes) == cls
+        x_pts = X_pca[idx, 0]
+        y_pts = X_pca[idx, 1]
+        color = color_map(i % 10)
+
+        # Scatter plot
+        plt.scatter(x_pts, y_pts, label=str(cls), alpha=0.7, color=color)
+
+        # 95% ellipse
+        if show_ellipses and len(x_pts) > 2:
+            cov = np.cov(x_pts, y_pts)
+            vals, vecs = np.linalg.eigh(cov)
+            order = vals.argsort()[::-1]
+            vals, vecs = vals[order], vecs[:, order]
+            theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+            width, height = 2 * 1.96 * np.sqrt(vals)  # 95% CI
+            ellipse = Ellipse(
+                xy=(np.mean(x_pts), np.mean(y_pts)),
+                width=width,
+                height=height,
+                angle=theta,
+                edgecolor=color,
+                facecolor=color,
+                alpha=ellipse_alpha,
+                linewidth=1.2
+            )
+            plt.gca().add_patch(ellipse)
+
+    # Final plot formatting
+    plt.xlabel(f'PC1 ({var_ratio[0]*100:.1f}%)')
+    plt.ylabel(f'PC2 ({var_ratio[1]*100:.1f}%)')
+    plt.title('PCA Score Plot (PC1 vs PC2)')
+    plt.legend(title="Class")
+    plt.grid(True)
+
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(os.path.join(directory, "PCA_PC1_vs_PC2.png"), dpi=300, bbox_inches="tight")
+    plt.show()
+
+    return {
+        "pca_model": pca,
+        "X_pca": X_pca,
+        "explained_variance": var_ratio
+    }

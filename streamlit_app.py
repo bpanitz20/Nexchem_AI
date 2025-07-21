@@ -29,7 +29,7 @@ st.set_page_config(page_title="NexChem App", layout="wide")
 st.title("🔬 NexChem Chemometric App")
 
 # === Sidebar Tabs ===
-tab = st.sidebar.radio("Navigation", ["Data Loading", "Preprocessing", "Modeling", "Prediction"], index=0)
+tab = st.sidebar.radio("Navigation", ["Data Loading", "Preprocessing", "Modeling", "Prediction", "PCA"], index=0)
 
 # === Step 1: Data Loading ===
 if tab == "Data Loading":
@@ -333,14 +333,13 @@ if tab == "Modeling":
             axis = st.session_state["cropped_axis"]
             sample_groups = st.session_state.get("sample_groups")
 
-            # Determine whether replicates or group-averaged spectra were used
             first_val = list(raw_X.values())[0]
             is_group_avg = not isinstance(first_val, list)
 
             if is_group_avg:
-                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, unmatched_ids = align_group_xy(raw_X, raw_Y)
+                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids = align_group_xy(raw_X, raw_Y)
             else:
-                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, unmatched_ids = align_xy(raw_X, raw_Y)
+                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids = align_xy(raw_X, raw_Y)
 
             results_dir = "./Model_Results"
             os.makedirs(results_dir, exist_ok=True)
@@ -359,44 +358,43 @@ if tab == "Modeling":
                 sample_ids=filtered_sample_ids
             )
 
-            # ✅ Store results in session_state so they're retained on rerun
             st.session_state["model_results"] = model_results
             st.session_state["model_built"] = True
+            st.session_state["unmatched_ids"] = unmatched_ids
             st.success("✅ Model training complete!")
-            
-      
-            # === Model Summary ===
+
+        # === Display Model Summary (after training or reload) ===
+        if st.session_state.get("model_built", False):
+            model_results = st.session_state["model_results"]
+            unmatched_ids = st.session_state.get("unmatched_ids", [])
+
             st.subheader("Model Summary")
-            
-            # Show unmatched sample IDs (if any)
+
             if unmatched_ids:
                 st.warning(f"❗ Unmatched Sample IDs: {', '.join(sorted(unmatched_ids))}")
-                   
-                        
-            # Show per-analyte summary
-            for analyte in raw_Y.columns:
+
+            show_cv_tables = st.checkbox("Show cross-validation tables", value=False)
+
+            for analyte in model_results.keys():
                 result = model_results[analyte]
                 summary = result.get("summary", None)
                 if summary:
                     st.markdown(summary)
-            
-            
-            # CV Results Section
-            st.subheader("Cross Validation Results")
-            
-            for analyte in raw_Y.columns:
+
+                if show_cv_tables:
+                    cv_table = result.get("cv_table_df")
+                    if cv_table is not None:
+                        st.markdown(f"**{analyte} – CV Metrics**")
+                        st.dataframe(cv_table.style.format(precision=4))
+
+            # === CV Diagnostic Plots ===
+            st.subheader("Cross Validation Diagnostics")
+
+            for analyte in model_results.keys():
                 result = model_results[analyte]
-            
-                # === Show CV table ===
-                cv_table = result.get("cv_table_df")
-                if cv_table is not None:
-                    st.markdown(f"**{analyte}**")
-                    st.dataframe(cv_table.style.format(precision=4))
-            
-                # === Collect available plots ===
                 plot_paths = []
                 captions = []
-            
+
                 if model_name != "MLP":
                     r2_plot = result.get("cv_r2_plot_path")
                     rmse_plot = result.get("cv_rmse_plot_path")
@@ -406,57 +404,121 @@ if tab == "Modeling":
                     if rmse_plot and os.path.exists(rmse_plot):
                         plot_paths.append(rmse_plot)
                         captions.append(f"CV RMSE vs n_components for {analyte}")
-            
+
                 pred_plot = result.get("cv_pred_plot_path")
                 if pred_plot and os.path.exists(pred_plot):
                     plot_paths.append(pred_plot)
                     captions.append(f"CV Predicted vs Actual for {analyte}")
-            
-                # === Display plots in flexible columns ===
+
                 if plot_paths:
                     cols = st.columns(len(plot_paths))
                     for i, (col, path) in enumerate(zip(cols, plot_paths)):
                         with col:
-                            st.image(path, width=400)
-                             
-            # === Loadings / Variable Importance Section ===
+                            st.image(path, caption=captions[i], use_container_width=True)
+
+            # === Loadings / Importance Section ===
             st.subheader("📉 Loadings & Variables")
-            
-            for analyte in raw_Y.columns:
+
+            for analyte in model_results.keys():
                 result = model_results[analyte]
-            
+
                 if model_name == "PLS":
-                    # Collect plot paths
                     vip = result.get("vip_plot_path")
                     coef = result.get("coef_plot_path")
                     t2q = result.get("t2_plot_path")
                     final_pred = result.get("final_pred_plot_path")
-            
+
                     st.markdown(f"**🔬 {analyte} (PLS)**")
-            
                     plot_paths = [t2q, final_pred, coef, vip]
                     plot_labels = ["T² vs Q Residuals", "Final Predicted vs Actual", "Regression Coefficients", "VIP Scores"]
-            
-                    # Layout in 2x2 grid
+
                     rows = [st.columns(2), st.columns(2)]
                     for i, (path, label) in enumerate(zip(plot_paths, plot_labels)):
                         if path and os.path.exists(path):
                             col = rows[i // 2][i % 2]
                             with col:
-                                st.image(path, width=500)
+                                st.image(path, caption=label, width=500)
+
                 elif model_name == "MLP":
                     st.markdown(f"**🔬 {analyte} (MLP)**")
-                
                     final_pred = result.get("final_pred_plot_path")
                     feat_imp = result.get("feature_importance_path")
-                
+
                     plot_paths = [final_pred, feat_imp]
                     plot_labels = ["Final Predicted vs Actual", "Feature Importance"]
-                
-                    rows = [st.columns(2)]
+
+                    cols = st.columns(2)
                     for i, (path, label) in enumerate(zip(plot_paths, plot_labels)):
                         if path and os.path.exists(path):
-                            col = rows[0][i % 2]
-                            with col:
-                                st.image(path, use_column_width=True)
-                                                      
+                            with cols[i]:
+                                st.image(path, caption=label, use_container_width=True)
+                                
+# === TAB 5: PCA Analysis ===
+if tab == "PCA":
+    st.header("Step 4: PCA Visualization")
+
+    if "preprocessed_spectra" not in st.session_state or "y_block" not in st.session_state:
+        st.warning("Please run preprocessing first in the 'Preprocessing' tab.")
+    else:
+        # ✅ Correct imports
+        from models.wrappers import PCA_model
+        from plotting.plot_PCA import plot_pca_loadings
+        from preprocessors.aligner import align_xy, align_group_xy
+
+        st.markdown("Run PCA on your preprocessed spectra and visualize PC1 vs PC2 with loadings.")
+
+        # === User Controls ===
+        with st.expander("⚙️ PCA Display Settings", expanded=True):
+            show_ellipses = st.checkbox("Show 95% confidence ellipses", value=True)
+            ellipse_alpha = st.select_slider(
+                "Ellipse transparency",
+                options=[0.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5],
+                value=0.25
+            )
+            top_n = st.selectbox(
+                "Number of top bands to label on loadings plot(per PC)",
+                options=list(range(1, 11)),
+                index=3
+            )
+
+        # === Get Preprocessed Data ===
+        raw_X = st.session_state["preprocessed_spectra"]
+        raw_Y = st.session_state["y_block"]
+        axis = st.session_state["cropped_axis"]
+
+        # Determine replicate structure
+        first_val = list(raw_X.values())[0]
+        is_group_avg = not isinstance(first_val, list)
+
+        if is_group_avg:
+            filtered_X, _, _, _, classes, _ = align_group_xy(raw_X, raw_Y)
+        else:
+            filtered_X, _, _, _, classes, _ = align_xy(raw_X, raw_Y)
+
+        # Create results directory
+        results_dir = "./Model_Results"
+        os.makedirs(results_dir, exist_ok=True)
+
+        # === Run PCA and Plot ===
+        st.subheader("📊 PCA Score Plot (PC1 vs PC2)")
+        pca_results = PCA_model(
+            X=filtered_X,
+            classes=classes,
+            axis=axis,
+            directory=results_dir,
+            n_components=5,
+            show_ellipses=show_ellipses,
+            ellipse_alpha=ellipse_alpha
+        )
+        st.image(os.path.join(results_dir, "PCA_PC1_vs_PC2.png"), width=800)
+
+        # === Loadings Plot ===
+        st.subheader("📈 PCA Loadings Plot")
+        plot_pca_loadings(
+            pca_model=pca_results["pca_model"],
+            axis=axis,
+            directory=results_dir,
+            components=[0, 1],
+            top_n=top_n
+        )
+        st.image(os.path.join(results_dir, "PCA_Loadings_Annotated.png"), width=800)
