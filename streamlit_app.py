@@ -324,6 +324,12 @@ if tab == "Modeling":
         # === Cross-validation options ===
         st.subheader("Choose Cross-Validation")
         use_group_kfold = st.checkbox("Use Grouped K-Fold CV?", value=False)
+        
+        group_strategy = None
+        if use_group_kfold:
+            group_strategy = st.radio("Group K-Fold by:", options=["Replicate", "Class"], index=0)
+                
+                
         n_folds = st.number_input("Number of K-Folds:", min_value=2, max_value=20, value=8)
 
         # === Start modeling ===
@@ -341,6 +347,13 @@ if tab == "Modeling":
             else:
                 filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids = align_xy(raw_X, raw_Y)
 
+            group_labels = None
+            if use_group_kfold:
+                if group_strategy == "Replicate":
+                    group_labels = filtered_groups
+                elif group_strategy == "Class":
+                    group_labels = classes
+
             results_dir = "./Model_Results"
             os.makedirs(results_dir, exist_ok=True)
 
@@ -349,7 +362,7 @@ if tab == "Modeling":
                 filtered_Y,
                 results_dir,
                 axis,
-                groups=filtered_groups if use_group_kfold else None,
+                groups=group_labels,
                 model_name=model_name,
                 param_range=param_range,
                 param_grid=param_grid,
@@ -372,6 +385,21 @@ if tab == "Modeling":
 
             if unmatched_ids:
                 st.warning(f"❗ Unmatched Sample IDs: {', '.join(sorted(unmatched_ids))}")
+                
+            # === CV Sample Assignment Toggle ===
+            if st.checkbox("Show CV sample fold assignments", value=False):
+                fold_df = None
+            
+                # Pull the first available fold_df from any analyte
+                for result in model_results.values():
+                    fold_df = result.get("fold_df")
+                    if fold_df is not None:
+                        break
+            
+                if fold_df is not None:
+                    st.dataframe(fold_df, use_container_width=True)
+                else:
+                    st.info("No fold assignment data was found.")    
 
             show_cv_tables = st.checkbox("Show cross-validation tables", value=False)
 

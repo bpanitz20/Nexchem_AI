@@ -42,8 +42,8 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
     # Run CV
     cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, 
                           groups=groups, model_name='PLS', directory=directory,
-                          manual_param=manual_param, n_folds=n_folds)
-
+                          manual_param=manual_param, n_folds=n_folds, sample_ids=sample_ids)
+    fold_df = cv_results.get("fold_df")
     # Final fit with optimal parameter
     if manual_param is not None:
         #print(f"Manual-selected {param_name}: {manual_param}")
@@ -122,6 +122,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
         'coef_plot_path': os.path.join(directory, f"PLS_Coefficients_{analyte}.png"),
         't2_plot_path': os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"),
         'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_PLS_{analyte}.png"),
+        "fold_df": fold_df
             
     }
 

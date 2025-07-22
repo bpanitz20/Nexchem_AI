@@ -13,7 +13,10 @@ from plotting.plot_regression import plot_cv_performance, plot_pred_vs_actual
 import pandas as pd
 import os
 
-def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analyte="", model_name="", directory="", manual_param=None):
+def KFold_CV(x, y, model, param_name, 
+             param_range, n_folds=8, groups=None, 
+             analyte="", model_name="", 
+             directory="", manual_param=None, sample_ids=None):
     """
     Kfold Cross-Validation
     
@@ -65,15 +68,20 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
     mean_rmse_cal = []
     all_predictions = {}
     
+    # CV fold tracking
+    fold_assignments = {} if sample_ids is not None else None
+
+    
     for param_value in param_range:
        # Set parameter value
        model.set_params(**{param_name: param_value}) 
+       
        # Get cross-validated scores
        r2_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=r2_scorer, **cv_kwargs)
        mse_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=mse_scorer, **cv_kwargs)      
-       # Store mean scores
        mean_r2_CV.append(np.mean(r2_scores))
        mean_mse_CV.append(np.mean(mse_scores))     
+       
        # Get cross-validated predictions
        all_predictions[param_value] = cross_val_predict(model, x, y_centered, cv=cv, **cv_kwargs)
    
@@ -85,9 +93,22 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
        mean_rmse_cal.append(np.sqrt(mse_fit))
        mean_r2_cal.append(r2_fit) 
    
-    mean_rmscev = [np.sqrt(m) for m in mean_mse_CV]
+       # Capture fold assignments once
+       if param_value == param_range[0] and fold_assignments is not None:
+            for fold_idx, (_, test_idx) in enumerate(cv.split(x, y_centered, **cv_kwargs)):
+                for i in test_idx:
+                    fold_assignments[sample_ids[i]] = fold_idx
+
+    # Build fold assignment DataFrame
+    if fold_assignments:
+        fold_df = pd.DataFrame(list(fold_assignments.items()), columns=["Sample ID", "CV Fold"])
+        fold_df = fold_df.sort_values(by="CV Fold").reset_index(drop=True)
+    else:
+        fold_df = None
+
    
     # Select optimal parameter 
+    mean_rmscev = [np.sqrt(m) for m in mean_mse_CV]
     rmse_gap = np.abs(np.array(mean_rmse_cal) - np.array(mean_rmscev)) 
     if manual_param is not None:
         #print(f"Manual-selected {param_name}: {manual_param}")
@@ -119,7 +140,7 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
             f'CV Predicted vs. Actual for {analyte} ({model_name})',
             f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
         )
-    
+
     return {
       'mean_r2_CV': mean_r2_CV,
       'mean_mse_CV': mean_mse_CV,
@@ -130,7 +151,8 @@ def KFold_CV(x, y, model, param_name, param_range, n_folds=8, groups=None, analy
       'y_mean': y_mean,
       'cv_r2_plot_path': cv_r2_plot_path,
       'cv_rmse_plot_path': cv_rmse_plot_path,
-      'cv_pred_plot_path': cv_pred_path
+      'cv_pred_plot_path': cv_pred_path,
+      'fold_df': fold_df 
   }
 
 
