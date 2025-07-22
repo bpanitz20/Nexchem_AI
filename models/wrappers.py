@@ -126,7 +126,10 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
             
     }
 
-def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, groups=None, random_state=42, n_folds=8):
+def MLPRegressor_model(x, y, directory, axis, analyte="", 
+                       param_grid=None, groups=None, 
+                       random_state=42, n_folds=8, sample_ids=None):
+    
     y = np.array(y).ravel()
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(x)
@@ -160,9 +163,11 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, group
         model_name="MLP",
         groups=groups,
         directory=directory,
-        n_folds=n_folds
+        n_folds=n_folds,
+        sample_ids=sample_ids
     )
-
+    fold_df = cv_results.get("fold_df")
+    
     final_model = cv_results['best_estimator']
     Y_pred = final_model.predict(X_scaled) + cv_results['y_mean']
 
@@ -215,7 +220,8 @@ def MLPRegressor_model(x, y, directory, axis, analyte="", param_grid=None, group
         'cv_table_df': cv_results['cv_table_df'],
         'summary': summary_string,
         'feature_importance_path': os.path.join(directory, f"Feature_Importance_MLP_{analyte}.png"),
-        'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_MLP_{analyte}.png")
+        'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_MLP_{analyte}.png"),
+        "fold_df": fold_df
     }
 
 
@@ -291,7 +297,7 @@ def MLPClassifier_model(x, y, directory, axis, analyte="", param_grid=None, grou
         "accuracy": acc,
         "f1": f1,
         "cv_accuracy": acc_cv,
-        "cv_f1": f1_cv
+        "cv_f1": f1_cv,
     }
 
 

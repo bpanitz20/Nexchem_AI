@@ -138,7 +138,7 @@ if tab == "Preprocessing":
         if selected_method in ["1. Savgol-SNV-MeanCenter", "3. Average Replicates: Savgol-SNV-MeanCenter"]:
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
 
-        if selected_method in ["2. Savgol-EMSC", "4. Average Replicates: Savgol-EMSC"]:
+        if selected_method in ["2. Savgol-EMSC-Meancenter", "4. Average Replicates: Savgol-EMSC-Meancenter"]:
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
             emsc_p_order = st.number_input("EMSC polynomial order", min_value=1, max_value=6, value=2)
 
@@ -171,7 +171,7 @@ if tab == "Preprocessing":
                 st.session_state["y_block"] = group_avg_Y
                 
 
-            elif selected_method == "2. Savgol-EMSC":
+            elif selected_method == "2. Savgol-EMSC-MeanCenter":
                 preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
                     sample_spectra, spectra_dir,
                     crop_region=crop_region,
@@ -343,7 +343,7 @@ if tab == "Modeling":
             is_group_avg = not isinstance(first_val, list)
 
             if is_group_avg:
-                filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids = align_group_xy(raw_X, raw_Y)
+                filtered_X, filtered_Y, filtered_sample_ids, classes, unmatched_ids = align_group_xy(raw_X, raw_Y)
             else:
                 filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids = align_xy(raw_X, raw_Y)
 
@@ -519,7 +519,7 @@ if tab == "PCA":
         is_group_avg = not isinstance(first_val, list)
 
         if is_group_avg:
-            filtered_X, _, _, _, classes, _ = align_group_xy(raw_X, raw_Y)
+            filtered_X, _, _, classes, _ = align_group_xy(raw_X, raw_Y)
         else:
             filtered_X, _, _, _, classes, _ = align_xy(raw_X, raw_Y)
 

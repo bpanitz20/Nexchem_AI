@@ -133,7 +133,8 @@ def run_regression_loop(
                 axis=axis,
                 analyte=analyte,
                 param_grid=param_grid,
-                groups=groups, n_folds=n_folds
+                groups=groups, n_folds=n_folds,
+                sample_ids=sample_ids
             )
 
         else:

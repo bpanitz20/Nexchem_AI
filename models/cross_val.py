@@ -157,7 +157,10 @@ def KFold_CV(x, y, model, param_name,
 
 
 
-def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, groups=None, scoring=None, analyte="", model_name="", directory=""):
+def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", 
+                        n_folds=10, groups=None, scoring=None, 
+                        analyte="", model_name="", directory="",
+                        sample_ids=None):
    
     y_centered = y
     y_mean = None
@@ -187,6 +190,14 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
     )
 
     grid_search.fit(x, y_centered, groups=groups)
+    
+    # Track fold assignment per sample
+    fold_assignments = []
+    for fold_idx, (_, test_idx) in enumerate(cv.split(x, y, **cv_kwargs)):
+        for i in test_idx:
+            sample_id = sample_ids[i] if sample_ids is not None else i
+            fold_assignments.append((sample_id, fold_idx))
+    fold_df = pd.DataFrame(fold_assignments, columns=["Sample ID", "CV Fold"])
 
     if task == 'regression':
         Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y_centered, cv=cv, method='predict', **cv_kwargs)
@@ -227,5 +238,6 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", n_folds=10, 
         'y_mean': y_mean,
         'cv_pred_plot_path': cv_pred_path,
         'cv_table_df': cv_table_df,
-        'best_estimator': grid_search.best_estimator_
+        'best_estimator': grid_search.best_estimator_,
+        'fold_df': fold_df
     }
