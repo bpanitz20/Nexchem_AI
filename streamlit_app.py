@@ -25,6 +25,7 @@ from preprocessors.raman_preprocess import (
 from collections import defaultdict
 
 
+
 st.set_page_config(page_title="NexChem App", layout="wide")
 st.title("🔬 NexChem Chemometric App")
 
@@ -331,7 +332,24 @@ if tab == "Modeling":
                 
                 
         n_folds = st.number_input("Number of K-Folds:", min_value=2, max_value=20, value=8)
-
+        
+        st.markdown("### Visualization Options")
+        
+        # Determine whether preprocessing is group-averaged
+        first_val = list(st.session_state["preprocessed_spectra"].values())[0]
+        is_group_avg = not isinstance(first_val, list)
+        
+        # Set available coloring options based on mode
+        coloring_choices = ["None", "Class"]
+        if not is_group_avg:
+            coloring_choices.append("Replicate")
+        
+        coloring_option = st.selectbox(
+            "Color predicted vs. actual plots by:",
+            options=coloring_choices,
+            index=0
+        )
+        
         # === Start modeling ===
         if st.button("Train Model"):
             raw_X = st.session_state["preprocessed_spectra"]
@@ -344,6 +362,7 @@ if tab == "Modeling":
 
             if is_group_avg:
                 filtered_X, filtered_Y, filtered_sample_ids, classes, unmatched_ids = align_group_xy(raw_X, raw_Y)
+                st.session_state["classes"] = classes
             else:
                 filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids = align_xy(raw_X, raw_Y)
 
@@ -356,6 +375,13 @@ if tab == "Modeling":
 
             results_dir = "./Model_Results"
             os.makedirs(results_dir, exist_ok=True)
+            
+            color_labels = None
+            if coloring_option == "Class":
+                color_labels = classes
+            elif coloring_option == "Replicate":
+                color_labels = filtered_groups
+
 
             model_results = run_regression_loop(
                 filtered_X,
@@ -368,7 +394,8 @@ if tab == "Modeling":
                 param_grid=param_grid,
                 manual_param=manual_param,
                 n_folds=n_folds,
-                sample_ids=filtered_sample_ids
+                sample_ids=filtered_sample_ids,
+                class_labels=color_labels
             )
 
             st.session_state["model_results"] = model_results
@@ -380,6 +407,8 @@ if tab == "Modeling":
         if st.session_state.get("model_built", False):
             model_results = st.session_state["model_results"]
             unmatched_ids = st.session_state.get("unmatched_ids", [])
+            classes = st.session_state.get("classes", None)
+            filtered_groups = st.session_state.get("filtered_groups", None)
 
             st.subheader("Model Summary")
 
@@ -417,7 +446,7 @@ if tab == "Modeling":
 
             # === CV Diagnostic Plots ===
             st.subheader("Cross Validation Diagnostics")
-
+            
             for analyte in model_results.keys():
                 result = model_results[analyte]
                 plot_paths = []
@@ -432,17 +461,17 @@ if tab == "Modeling":
                     if rmse_plot and os.path.exists(rmse_plot):
                         plot_paths.append(rmse_plot)
                         captions.append(f"CV RMSE vs n_components for {analyte}")
-
+    
                 pred_plot = result.get("cv_pred_plot_path")
                 if pred_plot and os.path.exists(pred_plot):
                     plot_paths.append(pred_plot)
                     captions.append(f"CV Predicted vs Actual for {analyte}")
-
-                if plot_paths:
-                    cols = st.columns(len(plot_paths))
-                    for i, (col, path) in enumerate(zip(cols, plot_paths)):
-                        with col:
-                            st.image(path, caption=captions[i], use_container_width=True)
+                    
+                    if plot_paths:
+                        cols = st.columns(len(plot_paths))
+                        for i, (col, path) in enumerate(zip(cols, plot_paths)):
+                            with col:
+                                st.image(path, caption=captions[i], use_container_width=True)    
 
             # === Loadings / Importance Section ===
             st.subheader("📉 Loadings & Variables")

@@ -63,7 +63,8 @@ def run_regression_loop(
     manual_param=None,
     n_folds=8,
     groups=None,
-    sample_ids=None
+    sample_ids=None,
+    class_labels=None
 ):
     """
     Runs a regression loop across all analytes in Y_df using the specified model and CV configuration.
@@ -113,7 +114,7 @@ def run_regression_loop(
                 analyte=analyte,
                 manual_param=manual_param,
                 groups=groups, n_folds=n_folds,
-                sample_ids=sample_ids
+                sample_ids=sample_ids, class_labels=class_labels
             )
 
         elif model_name == "MLP":
@@ -134,7 +135,7 @@ def run_regression_loop(
                 analyte=analyte,
                 param_grid=param_grid,
                 groups=groups, n_folds=n_folds,
-                sample_ids=sample_ids
+                sample_ids=sample_ids, class_labels=class_labels
             )
 
         else:

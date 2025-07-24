@@ -34,7 +34,10 @@ from plotting.plot_classifier import (
     plot_decision_boundary
 )
 
-def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_param=None, sample_ids=None, n_folds=8):
+def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, 
+              manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
+    
+    
     param_name = 'n_components'
     param_range = list(range(1, max_lv + 1))
     model = PLSRegression()
@@ -42,8 +45,9 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
     # Run CV
     cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, 
                           groups=groups, model_name='PLS', directory=directory,
-                          manual_param=manual_param, n_folds=n_folds, sample_ids=sample_ids)
+                          manual_param=manual_param, n_folds=n_folds, sample_ids=sample_ids, class_labels=class_labels)
     fold_df = cv_results.get("fold_df")
+    
     # Final fit with optimal parameter
     if manual_param is not None:
         #print(f"Manual-selected {param_name}: {manual_param}")
@@ -102,7 +106,8 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
         Y_pred + cv_results['y_mean'],
         directory,
         f"Final Predicted vs. Actual for {analyte} (PLS)",
-        f"Final_Pred_vs_Actual_PLS_{analyte}.png"
+        f"Final_Pred_vs_Actual_PLS_{analyte}.png",
+        class_labels=class_labels
     )
     plot_coefficients(axis, model.coef_, directory, "PLS", analyte)
     plot_vip_scores(model, x, axis, directory, "PLS", analyte)
@@ -128,7 +133,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, manual_
 
 def MLPRegressor_model(x, y, directory, axis, analyte="", 
                        param_grid=None, groups=None, 
-                       random_state=42, n_folds=8, sample_ids=None):
+                       random_state=42, n_folds=8, sample_ids=None, class_labels=None):
     
     y = np.array(y).ravel()
     scaler = StandardScaler()
@@ -164,7 +169,8 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         groups=groups,
         directory=directory,
         n_folds=n_folds,
-        sample_ids=sample_ids
+        sample_ids=sample_ids,
+        class_labels=class_labels
     )
     fold_df = cv_results.get("fold_df")
     
@@ -203,7 +209,8 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         Y_pred,
         directory,
         f"Final Predicted vs. Actual for {analyte} (MLP)",
-        f"Final_Pred_vs_Actual_MLP_{analyte}.png"
+        f"Final_Pred_vs_Actual_MLP_{analyte}.png",
+        class_labels=class_labels
     )
 
     return {

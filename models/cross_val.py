@@ -16,7 +16,7 @@ import os
 def KFold_CV(x, y, model, param_name, 
              param_range, n_folds=8, groups=None, 
              analyte="", model_name="", 
-             directory="", manual_param=None, sample_ids=None):
+             directory="", manual_param=None, sample_ids=None, class_labels=None):
     """
     Kfold Cross-Validation
     
@@ -138,7 +138,8 @@ def KFold_CV(x, y, model, param_name,
             Y_pred_CV + y_mean,
             directory,
             f'CV Predicted vs. Actual for {analyte} ({model_name})',
-            f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
+            f'CV_Pred_vs_Actual_{model_name}_{analyte}.png',
+            class_labels=class_labels
         )
 
     return {
@@ -160,7 +161,7 @@ def KFold_CV(x, y, model, param_name,
 def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression", 
                         n_folds=10, groups=None, scoring=None, 
                         analyte="", model_name="", directory="",
-                        sample_ids=None):
+                        sample_ids=None, class_labels=None):
    
     y_centered = y
     y_mean = None
@@ -226,7 +227,8 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
                 Y_plot,
                 directory,
                 f'CV Predicted vs. Actual for {analyte} ({model_name})',
-                f'CV_Pred_vs_Actual_{model_name}_{analyte}.png'
+                f'CV_Pred_vs_Actual_{model_name}_{analyte}.png',
+                class_labels=class_labels 
                 )
 
     return {

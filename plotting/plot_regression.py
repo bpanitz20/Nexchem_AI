@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from sklearn.inspection import permutation_importance
 import pandas as pd
 from scipy.stats import f
-   
+from sklearn.preprocessing import LabelEncoder
 
 def print_CV_table(param_name, param_range, r2_cv, r2_cal, mse_cv, rmse_cal,
                    model_name, analyte, directory):
@@ -104,21 +104,51 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
                                 best_params, optimal_param, param_name)
 
 
-def plot_pred_vs_actual(y_true, y_pred, directory, title, filename):
+
+def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels=None):
     plt.figure(figsize=(8, 6))
-    plt.scatter(y_true, y_pred, color='blue', alpha=0.6, label='Data')
-    plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 
+
+    if class_labels is not None:
+        le = LabelEncoder()
+        encoded_labels = le.fit_transform(class_labels)
+        unique_labels = np.unique(encoded_labels)
+        class_names = le.classes_
+
+        # Marker styles cycle
+        markers = ['o', 's', '^', 'D', 'v', 'P', '*', 'X']
+        colors = plt.cm.tab10.colors
+
+        for idx, class_val in enumerate(unique_labels):
+            indices = encoded_labels == class_val
+            plt.scatter(
+                y_true[indices], y_pred[indices],
+                c=[colors[idx % len(colors)]],
+                marker=markers[idx % len(markers)],
+                alpha=0.7,
+                label=str(class_names[class_val])
+            )
+
+        plt.legend(title="Class", bbox_to_anchor=(1.05, 1), loc='upper left')
+    else:
+        plt.scatter(y_true, y_pred, color='blue', alpha=0.6, label='Data')
+
+    # Ideal and best-fit lines
+    plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()],
              color='red', linestyle='--', label='Ideal')
+
     slope, intercept = np.polyfit(y_true.ravel(), y_pred.ravel(), 1)
-    plt.plot(y_true, slope*y_true + intercept, 'g--', label='Best Fit')
+    plt.plot(y_true, slope * y_true + intercept, 'g--', label='Best Fit')
+
     plt.xlabel('Actual Values')
     plt.ylabel('Predicted Values')
     plt.title(title)
     plt.grid(True)
     plt.legend()
+    plt.tight_layout()
+
     plt.savefig(os.path.join(directory, filename), dpi=300, bbox_inches="tight")
-    plt.show
     plt.close()
+
 
 def plot_cv_performance(param_range, r2_cv, r2_cal, mse_cv, rmse_cal, param_name, analyte, model_name, directory):
     """
