@@ -25,7 +25,18 @@ from preprocessors.raman_preprocess import (
     preprocess_none
 )
 from collections import defaultdict
-from plotting.plot_regression import plot_pls_scores
+
+
+
+def ensure_class_colors_from_y(y_df, class_col):
+    """Return (class_by_id, color_by_class) and works with either sample IDs or group IDs as index."""
+    classes = y_df[class_col].astype(str)
+    class_by_id = classes.to_dict()  # {id -> class label}
+
+    uniq = sorted(classes.unique())
+    cmap = plt.cm.get_cmap('tab20', len(uniq))
+    color_by_class = {cls: cmap(i) for i, cls in enumerate(uniq)}  # RGBA tuples OK for plt
+    return class_by_id, color_by_class
 
 
 
@@ -72,7 +83,7 @@ if tab == "Data Loading":
             # Optional: Display Y-block data
             with st.expander("🔬 Preview GC-MS Y-block"):
                 st.dataframe(y_df, use_container_width=True)
-
+                
             # === Automatically Display Overlay ===
             overlay_path = os.path.join(spectra_dir, "Overlay_Raw.png")
             if os.path.exists(overlay_path):
