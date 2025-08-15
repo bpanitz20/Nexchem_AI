@@ -9,6 +9,7 @@ Created on Wed Jun 11 20:39:25 2025
 import streamlit as st
 import io
 import pandas as pd
+import numpy as np
 import zipfile
 import os
 import tempfile
@@ -20,9 +21,11 @@ from preprocessors.raman_preprocess import (
     preprocess_pipeline_2,
     group_preprocess,
     group_preprocess_2,
-    avg_y_block
+    avg_y_block,
+    preprocess_none
 )
 from collections import defaultdict
+from plotting.plot_regression import plot_pls_scores
 
 
 
@@ -123,6 +126,7 @@ if tab == "Preprocessing":
             "2. Savgol-EMSC": preprocess_pipeline_1,
             "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
             "4. Average Replicates: Savgol-EMSC": group_preprocess,
+            "5. None": preprocess_none
         }
 
         selected_method = st.selectbox("Choose preprocessing method:", list(preprocess_options.keys()))
@@ -139,7 +143,7 @@ if tab == "Preprocessing":
         if selected_method in ["1. Savgol-SNV-MeanCenter", "3. Average Replicates: Savgol-SNV-MeanCenter"]:
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
 
-        if selected_method in ["2. Savgol-EMSC-Meancenter", "4. Average Replicates: Savgol-EMSC-Meancenter"]:
+        if selected_method in ["2. Savgol-EMSC", "4. Average Replicates: Savgol-EMSC"]:
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
             emsc_p_order = st.number_input("EMSC polynomial order", min_value=1, max_value=6, value=2)
 
@@ -172,7 +176,7 @@ if tab == "Preprocessing":
                 st.session_state["y_block"] = group_avg_Y
                 
 
-            elif selected_method == "2. Savgol-EMSC-MeanCenter":
+            elif selected_method == "2. Savgol-EMSC":
                 preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
                     sample_spectra, spectra_dir,
                     crop_region=crop_region,
@@ -180,7 +184,7 @@ if tab == "Preprocessing":
                     deriv_order=deriv_order
                 )
 
-            elif selected_method == "4. Average Replicates: Savgol-EMSC-MeanCenter":
+            elif selected_method == "4. Average Replicates: Savgol-EMSC":
                 sample_groups = defaultdict(list)
                 for sample_id in sample_spectra.keys():
                     group_id = sample_id.split("-")[0]
@@ -197,6 +201,11 @@ if tab == "Preprocessing":
                 group_avg_Y = avg_y_block(st.session_state["y_block"])
                 st.session_state["y_block"] = group_avg_Y
   
+            elif selected_method == "5. None":
+                preprocessed_spectra, cropped_axis = preprocess_none(
+                    sample_spectra, spectra_dir,
+                    crop_region=crop_region,
+                    )
 
             st.session_state["preprocessed_spectra"] = preprocessed_spectra
             st.session_state["cropped_axis"] = cropped_axis
@@ -509,7 +518,115 @@ if tab == "Modeling":
                         if path and os.path.exists(path):
                             with cols[i]:
                                 st.image(path, caption=label, use_container_width=True)
-                                
+ 
+            # === PLS LV Score Plots ===
+            st.subheader("🎯 Scores")
+                  
+            for analyte in model_results.keys():
+                result = model_results[analyte]
+                scoreplot_path = result.get("scoreplot_path")
+            
+                # Display only if the plot exists
+                if scoreplot_path and os.path.exists(scoreplot_path):
+                    st.image(scoreplot_path, caption=f"LV1 vs LV2 Scores – {analyte}", width=500)
+
+# === TAB 4: Prediction ===
+from models.prediction_eval import evaluate_on_prediction_set
+from preprocessors.aligner import align_xy
+
+if tab == "Prediction":
+    st.header("Step 4: Predict on External Dataset")
+
+    # === Upload Inputs ===
+    with st.expander("📁 Upload Prediction Spectra (.zip of .spc files)"):
+        pred_zip_file = st.file_uploader("Upload a .zip file of Raman .spc files", type="zip", key="pred_zip")
+
+    with st.expander("📄 (Optional) Upload Prediction Y-block (Excel with 'ID' column)"):
+        pred_y_file = st.file_uploader("Upload reference Y file (optional)", type="xlsx", key="pred_y")
+
+    if st.button("Run Prediction"):
+        if pred_zip_file is None:
+            st.warning("Please upload a zip file of Raman spectra first.")
+        else:
+            # === Extract and Load Spectra ===
+            pred_dir = "./temp_prediction"
+            spectra_dir = os.path.join(pred_dir, "spectra")
+            os.makedirs(spectra_dir, exist_ok=True)
+
+            with zipfile.ZipFile(pred_zip_file, "r") as zip_ref:
+                zip_ref.extractall(spectra_dir)
+
+            pred_sample_spectra, _, _ = load_raman(pred_dir, spectra_dir)
+            pred_preprocessed, _ = preprocess_pipeline_2(pred_sample_spectra, spectra_dir)
+
+            # === Flatten X_pred ===
+            X_pred = np.vstack([
+                spectrum.spectral_data
+                for spectra in pred_preprocessed.values()
+                for spectrum in spectra
+            ])
+            pred_sample_ids = list(pred_preprocessed.keys())
+
+            # === Optional Y-block ===
+            filtered_pred_sample_ids = pred_sample_ids
+            Y_pred_true = None
+
+            if pred_y_file is not None:
+                y_pred_df = pd.read_excel(pred_y_file)
+                y_pred_df.set_index("ID", inplace=True)
+                try:
+                    filtered_X_pred, filtered_Y_pred, filtered_pred_sample_ids, _, _, _ = align_xy(
+                        pred_preprocessed, y_pred_df
+                    )
+                    Y_pred_true = filtered_Y_pred.values
+                except Exception as e:
+                    st.warning(f"Y-block alignment failed: {e}")
+
+            # === Run Predictions ===
+            model_results = st.session_state.get("model_results", {})
+            axis = st.session_state.get("cropped_axis", None)
+            results_dir = "./Model_Results"
+
+            prediction_outputs = []
+
+            for analyte, result in model_results.items():
+                model_obj = result["model"]
+                y_mean = result["cv_results"]["y_mean"]
+                model_name = "PLS" if "PLS" in result["final_pred_plot_path"] else "MLP"
+
+                output = evaluate_on_prediction_set(
+                    model=model_obj,
+                    X_pred=filtered_X_pred,
+                    y_mean=y_mean,
+                    axis=axis,
+                    analyte=analyte,
+                    directory=results_dir,
+                    Y_pred_true=Y_pred_true[:, 0] if Y_pred_true is not None else None,
+                    model_name=model_name,
+                    sample_ids=filtered_pred_sample_ids
+                )
+                prediction_outputs.append(output)
+
+            # === Display Results ===
+            st.subheader("📈 Prediction Results")
+
+            for output in prediction_outputs:
+                st.markdown(f"### {output['analyte']} ({output['model_name']})")
+
+                # Show metrics if Y available
+                if "r2_pred" in output:
+                    st.markdown(f"**R²_pred**: {output['r2_pred']:.4f}  \n**RMSEP**: {output['rmsep']:.4f}")
+
+                # Show DataFrame of predicted values
+                if "csv_path" in output and os.path.exists(output["csv_path"]):
+                    df = pd.read_csv(output["csv_path"])
+                    st.dataframe(df)
+
+                # Show plot
+                if "pred_plot_path" in output and os.path.exists(output["pred_plot_path"]):
+                    st.image(output["pred_plot_path"], caption="Predicted vs Actual", use_container_width=True)
+
+
 # === TAB 5: PCA Analysis ===
 if tab == "PCA":
     st.header("Step 4: PCA Visualization")
@@ -521,8 +638,9 @@ if tab == "PCA":
         from models.wrappers import PCA_model
         from plotting.plot_PCA import plot_pca_loadings
         from preprocessors.aligner import align_xy, align_group_xy
+        import os
 
-        st.markdown("Run PCA on your preprocessed spectra and visualize PC1 vs PC2 with loadings.")
+        st.markdown("Run PCA on your preprocessed spectra and visualize selected PCs with loadings.")
 
         # === User Controls ===
         with st.expander("⚙️ PCA Display Settings", expanded=True):
@@ -533,10 +651,18 @@ if tab == "PCA":
                 value=0.25
             )
             top_n = st.selectbox(
-                "Number of top bands to label on loadings plot(per PC)",
+                "Number of top bands to label on loadings plot (per PC)",
                 options=list(range(1, 11)),
                 index=3
             )
+            # 🔽 New: how many PCs to compute
+            n_components = st.slider("Number of PCA components", min_value=2, max_value=15, value=5, step=1)
+            # 🔽 New: which PCs to plot (1-based for users)
+            col1, col2 = st.columns(2)
+            with col1:
+                pc_x = st.number_input("PC for X-axis", min_value=1, max_value=n_components, value=1, step=1)
+            with col2:
+                pc_y = st.number_input("PC for Y-axis", min_value=1, max_value=n_components, value=2, step=1)
 
         # === Get Preprocessed Data ===
         raw_X = st.session_state["preprocessed_spectra"]
@@ -557,17 +683,21 @@ if tab == "PCA":
         os.makedirs(results_dir, exist_ok=True)
 
         # === Run PCA and Plot ===
-        st.subheader("📊 PCA Score Plot (PC1 vs PC2)")
+        st.subheader(f"📊 PCA Score Plot (PC{pc_x} vs PC{pc_y})")
         pca_results = PCA_model(
             X=filtered_X,
             classes=classes,
             axis=axis,
             directory=results_dir,
-            n_components=5,
+            n_components=n_components,
             show_ellipses=show_ellipses,
-            ellipse_alpha=ellipse_alpha
+            ellipse_alpha=ellipse_alpha,
+            pc_x=pc_x,              # 🔽 pass through
+            pc_y=pc_y               # 🔽 pass through
         )
-        st.image(os.path.join(results_dir, "PCA_PC1_vs_PC2.png"), width=800)
+        # Match the PCA_model’s dynamic filename
+        score_img = os.path.join(results_dir, f"PCA_PC{pc_x}_vs_PC{pc_y}.png")
+        st.image(score_img, width=800)
 
         # === Loadings Plot ===
         st.subheader("📈 PCA Loadings Plot")
@@ -575,7 +705,7 @@ if tab == "PCA":
             pca_model=pca_results["pca_model"],
             axis=axis,
             directory=results_dir,
-            components=[0, 1],
+            components=[pc_x - 1, pc_y - 1],  # 🔽 show loadings for the same PCs
             top_n=top_n
         )
         st.image(os.path.join(results_dir, "PCA_Loadings_Annotated.png"), width=800)

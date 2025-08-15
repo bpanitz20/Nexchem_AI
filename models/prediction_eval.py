@@ -82,3 +82,18 @@ def evaluate_on_prediction_set(
             title=f"External Predicted vs. Actual for {analyte} ({model_name})",
             filename=f"External_Pred_vs_Actual_{model_name}_{analyte}.png"
         )
+    if Y_pred_true is not None:
+        return {
+            "analyte": analyte,
+            "model_name": model_name,
+            "r2_pred": r2_pred,
+            "rmsep": rmsep,
+            "pred_plot_path": os.path.join(directory, f"External_Pred_vs_Actual_{model_name}_{analyte}.png"),
+            "csv_path": csv_path
+        }
+    else:
+        return {
+            "analyte": analyte,
+            "model_name": model_name,
+            "csv_path": csv_path
+        }

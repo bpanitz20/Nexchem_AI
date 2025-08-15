@@ -302,3 +302,68 @@ def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", s
     plt.tight_layout()
     plt.savefig(os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"), dpi=300)
     plt.close()
+
+
+def plot_pls_scores(model, x, directory, analyte, class_labels=None, ellipse_alpha=0.2):
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Ellipse
+    from sklearn.preprocessing import LabelEncoder
+    import numpy as np
+    import os
+
+    T = model.transform(x)  # PLS scores
+    lv1, lv2 = T[:, 0], T[:, 1]
+    
+    x_var = np.var(model.x_scores_, axis=0)
+    explained_variance = x_var / np.sum(x_var)
+
+    plt.figure(figsize=(8, 6))
+
+    if class_labels is not None:
+        le = LabelEncoder()
+        encoded_labels = le.fit_transform(class_labels)
+        classes = le.classes_
+        cmap = plt.get_cmap("tab10")
+
+        for i, cls in enumerate(np.unique(encoded_labels)):
+            idx = encoded_labels == cls
+            x_pts, y_pts = lv1[idx], lv2[idx]
+            color = cmap(i % 10)
+
+            # Scatter
+            plt.scatter(x_pts, y_pts, label=classes[cls], color=color, alpha=0.7)
+
+            # Ellipse
+            if len(x_pts) > 2:
+                cov = np.cov(x_pts, y_pts)
+                vals, vecs = np.linalg.eigh(cov)
+                order = vals.argsort()[::-1]
+                vals, vecs = vals[order], vecs[:, order]
+                theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+                width, height = 2 * 1.96 * np.sqrt(vals)
+                ellipse = Ellipse(
+                    xy=(np.mean(x_pts), np.mean(y_pts)),
+                    width=width,
+                    height=height,
+                    angle=theta,
+                    edgecolor=color,
+                    facecolor=color,
+                    alpha=ellipse_alpha,
+                    linewidth=1.2
+                )
+                plt.gca().add_patch(ellipse)
+
+        plt.legend(title="Class", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    else:
+        plt.scatter(lv1, lv2, color="blue", alpha=0.7)
+
+    plt.xlabel(f"Latent Variable 1 ({explained_variance[0]*100:.1f}%)")
+    plt.ylabel(f"Latent Variable 2 ({explained_variance[1]*100:.1f}%)")
+    plt.title(f"PLS Score Plot (LV1 vs LV2) - {analyte}")
+    plt.grid(True)
+
+    out_path = os.path.join(directory, f"PLS_ScorePlot_LV1vsLV2_{analyte}.png")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    return out_path
