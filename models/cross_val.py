@@ -57,6 +57,7 @@ def KFold_CV(x, y, model, param_name,
         cv_kwargs = {}
         print("\nUsing standard KFold CV")
     print(f"n_folds = {n_folds}")
+   
     # Initialize KFold and scorers
     r2_scorer = make_scorer(r2_score)
     mse_scorer = make_scorer(mean_squared_error)
@@ -67,6 +68,8 @@ def KFold_CV(x, y, model, param_name,
     mean_mse_CV = []
     mean_rmse_cal = []
     all_predictions = {}
+    pooled_r2_CV = []       
+    pooled_rmse_CV = []
     
     # CV fold tracking
     fold_assignments = {} if sample_ids is not None else None
@@ -82,9 +85,15 @@ def KFold_CV(x, y, model, param_name,
        mean_r2_CV.append(np.mean(r2_scores))
        mean_mse_CV.append(np.mean(mse_scores))     
        
-       # Get cross-validated predictions
-       all_predictions[param_value] = cross_val_predict(model, x, y_centered, cv=cv, **cv_kwargs)
-   
+        # Get cross-validated predictions (existing)
+       yhat_cv = cross_val_predict(model, x, y_centered, cv=cv, **cv_kwargs)
+       all_predictions[param_value] = yhat_cv 
+       
+       #pooled metrics from stacked CV predictions (added)
+       pooled_r2_CV.append(r2_score(y_centered, yhat_cv))
+       pooled_rmse_CV.append(np.sqrt(mean_squared_error(y_centered, yhat_cv)))
+        
+
        # Fit and calculate calibration errors
        model.fit(x, y_centered)
        Y_fit = model.predict(x)
@@ -93,7 +102,7 @@ def KFold_CV(x, y, model, param_name,
        mean_rmse_cal.append(np.sqrt(mse_fit))
        mean_r2_cal.append(r2_fit) 
    
-       # Capture fold assignments once
+       # Capture fold assignments
        if param_value == param_range[0] and fold_assignments is not None:
             for fold_idx, (_, test_idx) in enumerate(cv.split(x, y_centered, **cv_kwargs)):
                 for i in test_idx:
@@ -108,18 +117,15 @@ def KFold_CV(x, y, model, param_name,
 
    
     # Select optimal parameter 
-    mean_rmscev = [np.sqrt(m) for m in mean_mse_CV]
-    rmse_gap = np.abs(np.array(mean_rmse_cal) - np.array(mean_rmscev)) 
+    pooled_rmscev = np.array(pooled_rmse_CV)             # already √MSE (RMSECV)
+    rmsec          = np.array(mean_rmse_cal)             # already √MSE (RMSEC)
+    rmse_gap       = np.abs(rmsec - pooled_rmscev)
+    
     if manual_param is not None:
-        #print(f"Manual-selected {param_name}: {manual_param}")
         optimal_param = manual_param
     else:
-        #autoselect based on minimal RMSECV–RMSEC gap
-        optimal_idx = np.argmin(rmse_gap)
-        optimal_param = param_range[optimal_idx]
-        #optimal_param = np.argmin(mean_rmscev)
-        #print(f"Auto-selected {param_name}: {optimal_param}")
-
+        optimal_idx   = int(np.argmin(rmse_gap))
+        optimal_param = list(param_range)[optimal_idx]
 
     Y_pred_CV = all_predictions[optimal_param]
     cv_r2_plot_path = os.path.join(directory, f'CV_R2_{model_name}_{analyte}.png')
@@ -129,8 +135,8 @@ def KFold_CV(x, y, model, param_name,
     # Plotting
     if directory:
         plot_cv_performance(
-            param_range, mean_r2_CV, mean_r2_cal,
-            mean_mse_CV, mean_rmse_cal,
+            param_range, pooled_r2_CV, mean_r2_cal,
+            pooled_rmse_CV, mean_rmse_cal,
             param_name, analyte, model_name, directory
         )
         plot_pred_vs_actual(
@@ -153,7 +159,9 @@ def KFold_CV(x, y, model, param_name,
       'cv_r2_plot_path': cv_r2_plot_path,
       'cv_rmse_plot_path': cv_rmse_plot_path,
       'cv_pred_plot_path': cv_pred_path,
-      'fold_df': fold_df 
+      'fold_df': fold_df,
+      'pooled_r2_CV': pooled_r2_CV,
+      'pooled_rmse_CV': pooled_rmse_CV,
   }
 
 
@@ -180,6 +188,8 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
        cv_kwargs = {}
        print("Using standard KFold")
     print(f"n_folds = {n_folds}")
+    
+    
     grid_search = GridSearchCV(
         estimator=model,
         param_grid=param_grid,
@@ -243,3 +253,4 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
         'best_estimator': grid_search.best_estimator_,
         'fold_df': fold_df
     }
+

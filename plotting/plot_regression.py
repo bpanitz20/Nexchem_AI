@@ -60,7 +60,7 @@ def print_CV_table(param_name, param_range, r2_cv, r2_cal, mse_cv, rmse_cal,
     output_path = os.path.join(directory, filename)
     df.to_csv(output_path, index=False)    
 
-def format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
+def format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_rmse_CV,
                          best_params=None, optimal_param=None, param_name=None):
     """
     Returns a markdown-formatted summary string of model performance.
@@ -71,7 +71,7 @@ def format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, 
 • R²_Cal: `{final_r2:.4f}`  
 • R²_CV: `{final_r2_CV:.4f}`  
 • RMSE: `{final_mse**0.5:.4f}`  
-• RMSECV: `{final_mse_CV**0.5:.4f}`  
+• RMSECV: `{final_rmse_CV:.4f}`  
 """
     else:
         summary = f"""**🔬 {analyte} ({model_name})**  
@@ -79,12 +79,12 @@ def format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, 
 • R²_Cal: `{final_r2:.4f}`  
 • R²_CV: `{final_r2_CV:.4f}`  
 • RMSE: `{final_mse**0.5:.4f}`  
-• RMSECV: `{final_mse_CV**0.5:.4f}`  
+• RMSECV: `{final_rmse_CV:.4f}`  
 """
     return summary
 
 
-def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
+def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_rmse_CV,
                          best_params=None, optimal_param=None, param_name=None):
     """
     Print model performance summary to the console.
@@ -97,10 +97,10 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
     print(f"R²_Cal: {final_r2:.4f}")
     print(f"R²_CV: {final_r2_CV:.4f}")
     print(f"RMSE: {final_mse**0.5:.4f}")
-    print(f"RMSECV: {final_mse_CV**0.5:.4f}")
+    print(f"RMSECV: {final_rmse_CV:.4f}")
     #print(f"MSE: {final_mse:.4f}")
     #print(f"MSECV: {final_mse_CV:.4f}")
-    return format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_mse_CV,
+    return format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_rmse_CV,
                                 best_params, optimal_param, param_name)
 
 
@@ -150,7 +150,7 @@ def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels
     plt.close()
 
 
-def plot_cv_performance(param_range, r2_cv, r2_cal, mse_cv, rmse_cal, param_name, analyte, model_name, directory):
+def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_name, analyte, model_name, directory):
     """
     Plot R2 and RMSE curves for calibration and cross-validation.
     """
@@ -170,7 +170,7 @@ def plot_cv_performance(param_range, r2_cv, r2_cal, mse_cv, rmse_cal, param_name
 
     # Plot RMSE
     plt.figure(figsize=(8, 6))
-    plt.plot(param_range, [m**0.5 for m in mse_cv], label='RMSE CV', marker='o', color='tab:red')
+    plt.plot(param_range, rmse_cv, label='RMSE CV', marker='o', color='tab:red')
     if rmse_cal:
         plt.plot(param_range, rmse_cal, label='RMSE Cal', marker='s', color='tab:pink')
     plt.title(f"RMSE vs {param_name} for {analyte} ({model_name})")

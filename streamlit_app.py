@@ -41,10 +41,104 @@ def ensure_class_colors_from_y(y_df, class_col):
 
 
 st.set_page_config(page_title="NexChem App", layout="wide")
-st.title("🔬 NexChem Chemometric App")
+
 
 # === Sidebar Tabs ===
-tab = st.sidebar.radio("Navigation", ["Data Loading", "Preprocessing", "Modeling", "Prediction", "PCA"], index=0)
+tab = st.sidebar.radio("Navigation", ["Home", "Data Loading", "Preprocessing", "Modeling", "Prediction", "PCA"], index=0)
+
+# === TAB 0: Home / Instructions ===
+if tab == "Home":
+    st.title("🔬 NexChem Chemometric App")
+    st.markdown("""
+    #### Intelligent Chemometric Modeling Platform
+    All-in-one app for developing, validating, and deploying predictive models from spectroscopy data.
+
+    ---
+
+    ### 🧭 User Guide
+    Follow the tabs on the left side of the page. Below are instructions for each step:
+
+    **1️⃣ Load Calibration Data**
+    - Upload a `.zip` containing your Thermo **Raman spectra (.spc)** files.  
+    - Upload an **Excel Y-block** containing target concentrations.  
+      - Make sure samples use the correct naming convention (see bottom).  
+      - Ensure sample names in the spectra and Excel **ID** column match exactly.  
+    - Visualize raw data to verify spectra were loaded correctly.
+
+    **2️⃣ Preprocess Spectra**
+    - Choose one of the preprocessing pipelines (e.g., Savitzky-Golay, SNV, EMSC).  
+    - Adjust parameters or leave defaults.  
+    - Visualize preprocessed spectra.  
+    - ⚠️ *If switching preprocessing pipelines causes an error, refresh the app and reload your data.*
+
+    **3️⃣ Modeling**
+    - Choose model parameters or leave blank to use automatic selection.  
+    - Choose CV parameters or use defaults.  
+    - Visualize predicted vs. actual plots and model performance metrics.
+
+    **4️⃣ Prediction Tab**
+    - Upload new Raman spectra to generate predictions from your saved calibration model.  
+    - If you upload a Y-block for the prediction set, external predicted vs. actual plots will be generated.
+
+    **5️⃣ PCA Tab**
+    - Generates a PCA plot using your spectral data.  
+    - Select which principal components (PCs) to display and view loadings.  
+    - Uses only the **Class** column from the Y-block for grouping and coloring.
+
+    ---
+
+    ### 🧩 File Naming Convention
+    Raman spectra should follow this format:
+    ```
+    SampleID-Replicate_.spc
+    ```
+
+    **Example:**
+    ```
+    188-1_450mw_10s.spc
+    188-2_450mw_10s.spc
+    188-3_450mw_10s.spc
+    190-1_450mw_10s.spc
+    190-2_450mw_10s.spc
+    190-3_450mw_10s.spc
+    ```
+
+    - Anything can come after the underscore (`_`) — for example, acquisition parameters.  
+    - NexChem_AI automatically detects the number after the dash for replicate grouping and visualization.  
+    - If you are using a different experimental design (e.g., time series), you can still use this format to separate samples in CV and visualization.
+
+    ---
+
+    ### 📊 Y-Block Excel Format
+    The Y-block must contain at least these columns:
+
+    | ID    | Class | DHA | EPA | PUFA |
+    |:------|:------|----:|----:|----:|
+    | 188-1 | 2022  | 10.5 | 5.1 | 15.6 |
+    | 188-2 | 2022  | 10.5 | 5.1 | 15.6 |
+    | 188-3 | 2022  | 10.5 | 5.1 | 15.6 |
+    | 190-1 | 2023  | 1.5  | 1.0 | 2.5  |
+    | 190-2 | 2023  | 1.5  | 1.0 | 2.5  |
+    | 190-3 | 2023  | 1.5  | 1.0 | 2.5  |
+
+    - The **ID** column must match the numeric portion of the corresponding spectra names.  
+    - **Class** (optional): used for visualization or grouped CV.  
+    - Columns such as **DHA**, **EPA**, or **PUFA** serve as target analytes.  
+    - NexChem_AI automatically loops through each column after the **Class** column and builds one model per target.  
+      *Only one target column is required.*
+
+    ---
+
+    ### 💡 Tips
+    - Use consistent **instrument settings** across calibration and prediction runs.  
+    - Keep all files for a calibration set in the same `.zip`.  
+    - Export results and plots directly from the **Results** directory.
+
+    ---
+
+    **Developed by Ben Panitz – FAU Bioanalytical Core & Aquaculture Research**
+    """)
+
 
 # === Step 1: Data Loading ===
 if tab == "Data Loading":

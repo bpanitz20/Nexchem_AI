@@ -65,27 +65,27 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None,
     # Metrics
     final_r2 = r2_score(y - cv_results['y_mean'], Y_pred)
     final_mse = mean_squared_error(y - cv_results['y_mean'], Y_pred)
-    final_r2_CV = cv_results['mean_r2_CV'][param_range.index(cv_results['optimal_param'])]
-    final_mse_CV = cv_results['mean_mse_CV'][param_range.index(cv_results['optimal_param'])]
+    final_r2_CV = cv_results['pooled_r2_CV'][param_range.index(cv_results['optimal_param'])]
+    final_rmse_CV = cv_results['pooled_rmse_CV'][param_range.index(cv_results['optimal_param'])]
 
     # Print summary
     print_CV_table(
         param_name=param_name,
         param_range=param_range,
-        r2_cv=cv_results['mean_r2_CV'],
+        r2_cv=cv_results['pooled_r2_CV'],
         r2_cal=cv_results['mean_r2_cal'],
-        mse_cv=cv_results['mean_mse_CV'],
+        mse_cv=cv_results['pooled_rmse_CV'],
         rmse_cal=cv_results['mean_rmse_cal'],
         model_name="PLS",
         analyte=analyte,
         directory=directory
         )
-    rmse_cv = [mse**0.5 for mse in cv_results['mean_mse_CV']]
+    
     cv_table_df = pd.DataFrame({
     param_name: param_range,
     "R²_Cal": cv_results['mean_r2_cal'],
-    "R²_CV": cv_results['mean_r2_CV'],
-    "RMSE_CV": rmse_cv,
+    "R²_CV": cv_results['pooled_r2_CV'],
+    "RMSE_CV": cv_results['pooled_rmse_CV'],
     "RMSE_Cal": cv_results['mean_rmse_cal']
     })
     
@@ -95,7 +95,7 @@ def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None,
         final_r2=final_r2,
         final_r2_CV=final_r2_CV,
         final_mse=final_mse,
-        final_mse_CV=final_mse_CV,
+        final_rmse_CV=final_rmse_CV,
         optimal_param=cv_results['optimal_param'],
         param_name=param_name
     )
@@ -201,7 +201,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         final_r2=final_r2,
         final_r2_CV=final_r2_CV,
         final_mse=final_mse,
-        final_mse_CV=final_mse_CV,
+        final_rmse_CV=final_mse_CV,
         best_params=cv_results['best_params']
         )
     
