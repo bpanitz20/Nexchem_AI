@@ -228,9 +228,9 @@ if tab == "Preprocessing":
 
         preprocess_options = {
             "1. Savgol-SNV-MeanCenter": preprocess_pipeline_2,
-            "2. Savgol-EMSC": preprocess_pipeline_1,
+            "2. Savgol-EMSC-MeanCenter": preprocess_pipeline_1,                     
             "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
-            "4. Average Replicates: Savgol-EMSC": group_preprocess,
+            "4. Average Replicates: Savgol-EMSC-MeanCenter": group_preprocess,     
             "5. None": preprocess_none
         }
 
@@ -248,7 +248,7 @@ if tab == "Preprocessing":
         if selected_method in ["1. Savgol-SNV-MeanCenter", "3. Average Replicates: Savgol-SNV-MeanCenter"]:
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
 
-        if selected_method in ["2. Savgol-EMSC", "4. Average Replicates: Savgol-EMSC"]:
+        if selected_method in ["2. Savgol-EMSC-MeanCenter", "4. Average Replicates: Savgol-EMSC-MeanCenter"]:
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
             emsc_p_order = st.number_input("EMSC polynomial order", min_value=1, max_value=6, value=2)
 
@@ -281,7 +281,7 @@ if tab == "Preprocessing":
                 st.session_state["y_block"] = group_avg_Y
                 
 
-            elif selected_method == "2. Savgol-EMSC":
+            elif selected_method == "2. Savgol-EMSC-MeanCenter":
                 preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
                     sample_spectra, spectra_dir,
                     crop_region=crop_region,
@@ -289,7 +289,7 @@ if tab == "Preprocessing":
                     deriv_order=deriv_order
                 )
 
-            elif selected_method == "4. Average Replicates: Savgol-EMSC":
+            elif selected_method == "4. Average Replicates: Savgol-EMSC-MeanCenter":
                 sample_groups = defaultdict(list)
                 for sample_id in sample_spectra.keys():
                     group_id = sample_id.split("-")[0]
