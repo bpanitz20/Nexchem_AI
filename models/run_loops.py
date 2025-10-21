@@ -56,7 +56,7 @@ def run_regression_loop(
     Y_df,
     results_dir,
     axis,
-    model_name="MLP",
+    model_name="PLS",
     param_name=None,
     param_grid=None,
     param_range=None,

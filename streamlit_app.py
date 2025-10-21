@@ -312,6 +312,13 @@ if tab == "Preprocessing":
                     crop_region=crop_region,
                     )
 
+            st.session_state["trained_preprocess_key"] = selected_method
+            st.session_state["trained_crop_region"] = crop_region
+            st.session_state["trained_deriv_order"] = deriv_order
+            st.session_state["trained_emsc_p_order"] = emsc_p_order
+            st.session_state["trained_is_group"] = selected_method.startswith(("3.", "4."))
+
+
             st.session_state["preprocessed_spectra"] = preprocessed_spectra
             st.session_state["cropped_axis"] = cropped_axis
             st.session_state["preprocessing_done"] = True
@@ -637,7 +644,21 @@ if tab == "Modeling":
 
 # === TAB 4: Prediction ===
 from models.prediction_eval import evaluate_on_prediction_set
-from preprocessors.aligner import align_xy
+from preprocessors.aligner import align_xy, align_group_xy
+def _flatten_preprocessed_to_matrix(preprocessed_dict):
+    """Return (X, sample_ids) from {sample_id: Spectrum or [Spectrum, ...]}."""
+    rows = []
+    ids = []
+    for sid, bundle in preprocessed_dict.items():
+        if isinstance(bundle, list):           # list of Spectrum
+            for sp in bundle:
+                rows.append(sp.spectral_data)
+                ids.append(sid)
+        else:                                  # single Spectrum
+            sp = bundle
+            rows.append(sp.spectral_data)
+            ids.append(sid)
+    return np.vstack(rows), ids
 
 if tab == "Prediction":
     st.header("Step 4: Predict on External Dataset")
@@ -648,6 +669,38 @@ if tab == "Prediction":
 
     with st.expander("📄 (Optional) Upload Prediction Y-block (Excel with 'ID' column)"):
         pred_y_file = st.file_uploader("Upload reference Y file (optional)", type="xlsx", key="pred_y")
+
+
+
+
+    # === Pull training-time choices ===
+    trained_key   = st.session_state.get("trained_preprocess_key")
+    trained_axis  = st.session_state.get("trained_axis")
+    crop_region   = st.session_state.get("trained_crop_region", (800, 1800))
+    deriv_order   = st.session_state.get("trained_deriv_order", 1)
+    emsc_p_order  = st.session_state.get("trained_emsc_p_order", 2)
+    trained_is_group = st.session_state.get("trained_is_group", False)
+
+    if trained_key is None:
+        st.error("No trained preprocessing found. Please run the Preprocessing tab first.")
+
+    # map the saved key back to the callable
+    preprocess_options = {
+        "1. Savgol-SNV-MeanCenter": preprocess_pipeline_2,
+        "2. Savgol-EMSC-MeanCenter": preprocess_pipeline_1,
+        "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
+        "4. Average Replicates: Savgol-EMSC-MeanCenter": group_preprocess,
+        "5. None": preprocess_none
+    }
+
+    if trained_key in preprocess_options:
+        st.info(f"Using preprocessing from training: **{trained_key}**")
+    else:
+        st.error(f"Unrecognized preprocessing key: {trained_key}")
+        st.stop()
+
+
+
 
     if st.button("Run Prediction"):
         if pred_zip_file is None:
@@ -662,75 +715,155 @@ if tab == "Prediction":
                 zip_ref.extractall(spectra_dir)
 
             pred_sample_spectra, _, _ = load_raman(pred_dir, spectra_dir)
-            pred_preprocessed, _ = preprocess_pipeline_2(pred_sample_spectra, spectra_dir)
+            
+            
+            if trained_is_group:
+                from collections import defaultdict
+                pred_sample_groups = defaultdict(list)
+                for sample_id in pred_sample_spectra.keys():
+                    group_id = sample_id.split("-")[0]
+                    pred_sample_groups[group_id].append(sample_id)
+            else:
+                pred_sample_groups = None
 
-            # === Flatten X_pred ===
-            X_pred = np.vstack([
-                spectrum.spectral_data
-                for spectra in pred_preprocessed.values()
-                for spectrum in spectra
-            ])
-            pred_sample_ids = list(pred_preprocessed.keys())
+            pre_func = preprocess_options[trained_key]
 
-            # === Optional Y-block ===
-            filtered_pred_sample_ids = pred_sample_ids
+            # === Apply the SAME preprocessing & params ===
+            if trained_key == "1. Savgol-SNV-MeanCenter":
+                pred_preprocessed, pred_axis = pre_func(
+                    pred_sample_spectra, spectra_dir,
+                    crop_region=crop_region, derivative_order=deriv_order
+                )
+
+            elif trained_key == "2. Savgol-EMSC-MeanCenter":
+                pred_preprocessed, pred_axis = pre_func(
+                    pred_sample_spectra, spectra_dir,
+                    crop_region=crop_region, emsc_p_order=emsc_p_order, deriv_order=deriv_order
+                )
+
+            elif trained_key == "3. Average Replicates: Savgol-SNV-MeanCenter":
+                pred_preprocessed, pred_axis, _group_plot_dict = pre_func(
+                    pred_sample_spectra, pred_sample_groups, spectra_dir,
+                    crop_region=crop_region, derivative_order=deriv_order
+                )
+
+            elif trained_key == "4. Average Replicates: Savgol-EMSC-MeanCenter":
+                out = pre_func(
+                    pred_sample_spectra, pred_sample_groups, spectra_dir,
+                    crop_region=crop_region, emsc_p_order=emsc_p_order, deriv_order=deriv_order
+                )
+                # support 2-return or 4-return variants
+                if isinstance(out, tuple) and len(out) >= 2:
+                    pred_preprocessed, pred_axis = out[0], out[1]
+                else:
+                    pred_preprocessed, pred_axis = out
+
+            elif trained_key == "5. None":
+                pred_preprocessed, pred_axis = preprocess_none(
+                    pred_sample_spectra, spectra_dir,
+                    crop_region=crop_region
+                )
+
+            else:
+                st.error(f"Unhandled preprocessing key: {trained_key}")
+                st.stop()
+
+            # === Optional Y-block alignment ===
+            filtered_pred_sample_ids = list(pred_preprocessed.keys())
             Y_pred_true = None
 
-            if pred_y_file is not None:
-                y_pred_df = pd.read_excel(pred_y_file)
-                y_pred_df.set_index("ID", inplace=True)
-                try:
-                    filtered_X_pred, filtered_Y_pred, filtered_pred_sample_ids, _, _, _ = align_xy(
-                        pred_preprocessed, y_pred_df
-                    )
-                    Y_pred_true = filtered_Y_pred.values
-                except Exception as e:
-                    st.warning(f"Y-block alignment failed: {e}")
 
+            try:
+                if pred_y_file is not None:
+                    y_pred_df = pd.read_excel(pred_y_file)
+                    if "ID" not in y_pred_df.columns:
+                        st.warning("Prediction Y file must contain an 'ID' column.")
+                        st.stop()
+            
+                    # normalize ID strings
+                    y_pred_df["ID"] = y_pred_df["ID"].astype(str).str.strip()
+                    y_pred_df.set_index("ID", inplace=True)
+            
+                    if trained_is_group:
+                        # Group Y the SAME way as training (prefix before first "-")
+                        num_cols = y_pred_df.select_dtypes(include=[np.number]).columns
+                        y_pred_df["_group_id"] = y_pred_df.index.map(lambda s: str(s).split("-")[0])
+                        y_pred_group = y_pred_df.groupby("_group_id")[num_cols].mean()
+            
+                        # (Optional) quick sanity check
+                        x_groups = set(map(str, pred_preprocessed.keys()))
+                        y_groups = set(map(str, y_pred_group.index))
+                        if x_groups.isdisjoint(y_groups):
+                            st.warning("Heads-up: no overlap after grouping — check group prefixes/casing/whitespace.")
+            
+                        # align_group_xy returns 5 values
+                        filtered_X_pred, filtered_Y_pred, filtered_pred_sample_ids, class_labels, unmatched_ids = align_group_xy(
+                            pred_preprocessed, y_pred_group
+                        )
+                    else:
+                        # align_xy returns 6 values
+                        (filtered_X_pred, filtered_Y_pred,
+                         filtered_pred_sample_ids, filtered_group_labels,
+                         class_labels, unmatched_ids) = align_xy(pred_preprocessed, y_pred_df)
+            
+                    # Y may be a DataFrame or ndarray; grab values if present
+                    Y_pred_true = filtered_Y_pred.values if hasattr(filtered_Y_pred, "values") else filtered_Y_pred
+            
+                else:
+                    # Build X if no Y provided (safe for Spectrum or list[Spectrum])
+                    filtered_X_pred, filtered_pred_sample_ids = _flatten_preprocessed_to_matrix(pred_preprocessed)
+                    Y_pred_true = None
+            
+            except Exception as e:
+                st.warning(f"Y-block alignment failed: {e}")
+                # Fallback: safely flatten preprocessed spectra
+                filtered_X_pred, filtered_pred_sample_ids = _flatten_preprocessed_to_matrix(pred_preprocessed)
+                Y_pred_true = None
+                       
             # === Run Predictions ===
             model_results = st.session_state.get("model_results", {})
-            axis = st.session_state.get("cropped_axis", None)
+            axis = trained_axis if trained_axis is not None else pred_axis
             results_dir = "./Model_Results"
 
-            prediction_outputs = []
+            if not model_results:
+                st.warning("No trained models found. Please train models first in the Modeling tab.")
+            else:
+                prediction_outputs = []
+                for analyte, result in model_results.items():
+                    model_obj = result["model"]
+                    y_mean = result["cv_results"]["y_mean"]
+                    model_name = "PLS" if "PLS" in result.get("final_pred_plot_path", "") else "MLP"
 
-            for analyte, result in model_results.items():
-                model_obj = result["model"]
-                y_mean = result["cv_results"]["y_mean"]
-                model_name = "PLS" if "PLS" in result["final_pred_plot_path"] else "MLP"
+                    output = evaluate_on_prediction_set(
+                        model=model_obj,
+                        X_pred=filtered_X_pred,
+                        y_mean=y_mean,
+                        axis=axis,
+                        analyte=analyte,
+                        directory=results_dir,
+                        Y_pred_true=Y_pred_true[:, 0] if Y_pred_true is not None else None,
+                        model_name=model_name,
+                        sample_ids=filtered_pred_sample_ids
+                    )
+                    prediction_outputs.append(output)
 
-                output = evaluate_on_prediction_set(
-                    model=model_obj,
-                    X_pred=filtered_X_pred,
-                    y_mean=y_mean,
-                    axis=axis,
-                    analyte=analyte,
-                    directory=results_dir,
-                    Y_pred_true=Y_pred_true[:, 0] if Y_pred_true is not None else None,
-                    model_name=model_name,
-                    sample_ids=filtered_pred_sample_ids
-                )
-                prediction_outputs.append(output)
+                # === Display Results ===
+                st.subheader("📈 Prediction Results")
+                for output in prediction_outputs:
+                    st.markdown(f"### {output['analyte']} ({output['model_name']})")
 
-            # === Display Results ===
-            st.subheader("📈 Prediction Results")
+                    # Show metrics if Y available
+                    if "r2_pred" in output:
+                        st.markdown(f"**R²_pred**: {output['r2_pred']:.4f}  \n**RMSEP**: {output['rmsep']:.4f}")
 
-            for output in prediction_outputs:
-                st.markdown(f"### {output['analyte']} ({output['model_name']})")
+                    # Show DataFrame of predicted values
+                    if "csv_path" in output and os.path.exists(output["csv_path"]):
+                        df = pd.read_csv(output["csv_path"])
+                        st.dataframe(df)
 
-                # Show metrics if Y available
-                if "r2_pred" in output:
-                    st.markdown(f"**R²_pred**: {output['r2_pred']:.4f}  \n**RMSEP**: {output['rmsep']:.4f}")
-
-                # Show DataFrame of predicted values
-                if "csv_path" in output and os.path.exists(output["csv_path"]):
-                    df = pd.read_csv(output["csv_path"])
-                    st.dataframe(df)
-
-                # Show plot
-                if "pred_plot_path" in output and os.path.exists(output["pred_plot_path"]):
-                    st.image(output["pred_plot_path"], caption="Predicted vs Actual", use_container_width=True)
-
+                    # Show plot
+                    if "pred_plot_path" in output and os.path.exists(output["pred_plot_path"]):
+                        st.image(output["pred_plot_path"], caption="Predicted vs Actual", use_container_width=True)
 
 # === TAB 5: PCA Analysis ===
 if tab == "PCA":
