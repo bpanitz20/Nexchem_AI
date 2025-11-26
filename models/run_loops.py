@@ -56,7 +56,7 @@ def run_regression_loop(
     Y_df,
     results_dir,
     axis,
-    model_name="PLS",
+    model_name="MLP",
     param_name=None,
     param_grid=None,
     param_range=None,
@@ -120,12 +120,13 @@ def run_regression_loop(
         elif model_name == "MLP":
             if param_grid is None:
                 param_grid = {
-                    'hidden_layer_sizes': [(50,), (100,), (100, 50)],
-                    'activation': ['relu'],
-                    'alpha': [0.02, 0.01, 0.0009],
-                    'learning_rate_init': np.linspace(0.0001, 0.01, 10).tolist(),
-                    'early_stopping': [True],
-                    'solver': ['adam']
+                        'pls__n_components': [4, 5, 6],
+                        'mlp__hidden_layer_sizes': [(50,), (100,), (50, 50)],
+                        'mlp__activation': ['relu'],
+                        'mlp__alpha': [0.02, 0.01, 0.0009],
+                        'mlp__learning_rate_init': np.linspace(0.0001, 0.01, 10).tolist(),
+                        'mlp__early_stopping': [True],
+                        'mlp__solver': ['adam']
                     }
             model_results = MLPRegressor_model(
                 x=X,

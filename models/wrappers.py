@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import os
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge, Lasso
@@ -34,6 +35,37 @@ from plotting.plot_classifier import (
     plot_roc_curve,
     plot_decision_boundary
 )
+
+from sklearn.base import BaseEstimator, TransformerMixin
+
+class PLSFeaturizer(BaseEstimator, TransformerMixin):
+    """
+    Wrapper around PLSRegression that exposes only the X-scores (T)
+    so it can be safely used inside a sklearn Pipeline.
+    """
+    def __init__(self, n_components=2, scale=False):
+        self.n_components = n_components
+        self.scale = scale
+        self.pls_ = None
+
+    def fit(self, X, y=None):
+        self.pls_ = PLSRegression(
+            n_components=self.n_components,
+            scale=self.scale
+        )
+        self.pls_.fit(X, y)
+        return self
+
+    def transform(self, X):
+        # transform returns X_scores (T); 2D
+        X_scores = self.pls_.transform(X)
+        return X_scores
+
+
+
+
+
+
 
 def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, 
               manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
@@ -147,20 +179,19 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
                        random_state=42, n_folds=8, sample_ids=None, class_labels=None):
     
     y = np.array(y).ravel()
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(x)
 
     if param_grid is None:
         param_grid = {
-            'hidden_layer_sizes': [(50,), (100,), (50, 50)],
-            'activation': ['relu'],
-            'alpha': [0.02, 0.01, 0.0009],
-            'learning_rate_init': np.linspace(0.0001, 0.01, 10).tolist(),
-            'early_stopping': [True],
-            'solver': ['adam']
+            'pls__n_components': [4, 5, 6],
+            'mlp__hidden_layer_sizes': [(50,), (100,), (50, 50)],
+            'mlp__activation': ['relu'],
+            'mlp__alpha': [0.02, 0.01, 0.0009],
+            'mlp__learning_rate_init': np.linspace(0.0001, 0.01, 10).tolist(),
+            'mlp__early_stopping': [True],
+            'mlp__solver': ['adam']
         }
-
-    base_model = MLPRegressor(
+        
+    base_mlp = MLPRegressor(
         max_iter=2000,
         random_state=random_state,
         verbose=False,
@@ -169,10 +200,17 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         batch_size='auto'
     )
 
+    # Pipeline: StandardScaler -> MLP
+    pipeline = Pipeline([
+        ('pls', PLSFeaturizer(scale=False)),  # ← use wrapper, not PLSRegression directly
+        ('scaler', StandardScaler()),
+        ('mlp', base_mlp)
+    ])
+
     cv_results = KFold_Gridsearch_CV(
-        x=X_scaled,
+        x=x,
         y=y,
-        model=base_model,
+        model=pipeline,
         param_grid=param_grid,
         task="regression",
         analyte=analyte,
@@ -186,7 +224,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
     fold_df = cv_results.get("fold_df")
     
     final_model = cv_results['best_estimator']
-    Y_pred = final_model.predict(X_scaled) + cv_results['y_mean']
+    Y_pred = final_model.predict(x) + cv_results['y_mean']
 
     final_r2 = r2_score(y, Y_pred)
     final_mse = mean_squared_error(y, Y_pred)
@@ -207,7 +245,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
     
     plot_feature_importance(
     model=final_model,
-    x=X_scaled,
+    x=x,
     y=y,
     axis=axis,
     directory=directory,
@@ -231,7 +269,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         'cv_results': {
         'cv_results': cv_results['cv_results'],
         'best_params': cv_results['best_params'],
-        'y_mean': cv_results['y_mean']  # <- this is missing!
+        'y_mean': cv_results['y_mean']  
         },
         'best_params': cv_results['best_params'],
         'cv_pred_plot_path': cv_results['cv_pred_plot_path'],

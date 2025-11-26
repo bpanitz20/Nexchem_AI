@@ -262,24 +262,38 @@ if tab == "Preprocessing":
 
             # === Run Preprocessing ===
             if selected_method == "1. Savgol-SNV-MeanCenter":
-                preprocessed_spectra, cropped_axis = preprocess_pipeline_2(
+                preprocessed_spectra, cropped_axis, preproc_state = preprocess_pipeline_2(
                     sample_spectra, spectra_dir,
-                    crop_region=crop_region, derivative_order=deriv_order
+                    crop_region=crop_region, derivative_order=deriv_order,
+                    return_state=True
                 )
+                st.session_state["preproc_state"] = preproc_state
 
             elif selected_method == "3. Average Replicates: Savgol-SNV-MeanCenter":
                 sample_groups = defaultdict(list)
                 for sample_id in sample_spectra.keys():
                     group_id = sample_id.split("-")[0]
                     sample_groups[group_id].append(sample_id)
+            
+                # 1) Get fitted state (global mean) for reuse later
+                _, _, preproc_state = group_preprocess_2(
+                    sample_spectra, sample_groups, spectra_dir,
+                    crop_region=crop_region, derivative_order=deriv_order,
+                    return_state=True
+                )
+                st.session_state["preproc_state"] = preproc_state
+            
+                # 2) Get group-averaged spectra + plots for UI
                 preprocessed_spectra, cropped_axis, group_plot_dict = group_preprocess_2(
-                sample_spectra, sample_groups, spectra_dir,
-                crop_region=crop_region, derivative_order=deriv_order
+                    sample_spectra, sample_groups, spectra_dir,
+                    crop_region=crop_region, derivative_order=deriv_order
                 )
                 st.session_state["group_plots"] = group_plot_dict  # store the figures for UI
+            
                 group_avg_Y = avg_y_block(st.session_state["y_block"])
                 st.session_state["y_block"] = group_avg_Y
-                
+                st.session_state["sample_groups"] = sample_groups
+
 
             elif selected_method == "2. Savgol-EMSC-MeanCenter":
                 preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
@@ -317,7 +331,7 @@ if tab == "Preprocessing":
             st.session_state["trained_deriv_order"] = deriv_order
             st.session_state["trained_emsc_p_order"] = emsc_p_order
             st.session_state["trained_is_group"] = selected_method.startswith(("3.", "4."))
-
+            st.session_state["trained_axis"] = cropped_axis
 
             st.session_state["preprocessed_spectra"] = preprocessed_spectra
             st.session_state["cropped_axis"] = cropped_axis
@@ -426,22 +440,55 @@ if tab == "Modeling":
         elif model_name == "MLP":
             enable_grid_customization = st.checkbox("Customize MLP Parameter Grid?", value=False)
             if enable_grid_customization:
-                hidden_layer_sizes = st.multiselect(
-                    "Hidden layer sizes:",
-                    options=[(50,), (100,), (50, 50), (100, 50), (50, 100)],
-                    default=[(50,), (100,)]
+                
+                # PLS X-block compression
+                pls_components = st.multiselect(
+                    "PLS components (X-block compression):",
+                    options=[2, 3, 4, 5, 6, 7, 8, 10, 12, 14],
+                    default=[6]
                 )
-                alpha_values = st.multiselect("Alpha values:", options=[0.1, 0.01, 0.001, 0.0001], default=[0.01, 0.001])
-                learning_rates = st.multiselect("Learning rates:", options=[0.0001, 0.001, 0.005, 0.01], default=[0.001])
+                
+                # Nodes per layer – like Eigenvector
+                nodes_first = st.multiselect(
+                    "Nodes 1st layer:",
+                    options=[8, 9, 10, 11, 12, 14, 16],
+                    default=[10]      # you can set [2] if you want strictly 2
+                )
+        
+                nodes_second = st.multiselect(
+                    "Nodes 2nd layer (0 = none):",
+                    options=[0, 1, 2, 3, 4, 5, 6],
+                    default=[0]      # 0 = single layer, 2 = 2nd layer with 2 nodes
+                )
+        
+                # Build hidden_layer_sizes list like Eigenvector
+                hidden_layer_sizes = []
+                for n1 in nodes_first:
+                    for n2 in nodes_second:
+                        if n2 == 0:
+                            hidden_layer_sizes.append((n1,))
+                        else:
+                            hidden_layer_sizes.append((n1, n2))
+
+                alpha_values = st.multiselect("Alpha values:", options=[0.029, 0.03, 0.03, 0.032, 0.035, 0.36, 0.037, 0.038, 0.04, 0.045, 0.05, 0.55, 0.6], default=[0.03])
+                learning_rates = st.multiselect("Learning rates:", options=[  0.002, 0.003, 0.0035, 0.004, 0.0042, 0.0043, 0.0044, 0.0045, 0.0046, 0.0047, 0.005, 0.0052, 0.0054, 0.006], default=[0.004])
+
+                activations = st.multiselect(
+                    "Activation functions:",
+                    options=["relu", "tanh"],
+                    default=["relu"]
+                )
+
 
                 param_grid = {
-                    'hidden_layer_sizes': hidden_layer_sizes,
-                    'activation': ['relu'],
-                    'alpha': alpha_values,
-                    'learning_rate_init': learning_rates,
-                    'early_stopping': [True],
-                    'solver': ['adam']
-                }
+            'pls__n_components': pls_components,          
+            'mlp__hidden_layer_sizes': hidden_layer_sizes,
+            'mlp__activation': activations,
+            'mlp__alpha': alpha_values,
+            'mlp__learning_rate_init': learning_rates,
+            'mlp__early_stopping': [True],
+            'mlp__solver': ['adam']
+        }
 
         # === Cross-validation options ===
         st.subheader("Choose Cross-Validation")
@@ -680,6 +727,7 @@ if tab == "Prediction":
     deriv_order   = st.session_state.get("trained_deriv_order", 1)
     emsc_p_order  = st.session_state.get("trained_emsc_p_order", 2)
     trained_is_group = st.session_state.get("trained_is_group", False)
+    preproc_state = st.session_state.get("preproc_state")
 
     if trained_key is None:
         st.error("No trained preprocessing found. Please run the Preprocessing tab first.")
@@ -732,7 +780,9 @@ if tab == "Prediction":
             if trained_key == "1. Savgol-SNV-MeanCenter":
                 pred_preprocessed, pred_axis = pre_func(
                     pred_sample_spectra, spectra_dir,
-                    crop_region=crop_region, derivative_order=deriv_order
+                    crop_region=crop_region,
+                    derivative_order=deriv_order,
+                    use_state=preproc_state      
                 )
 
             elif trained_key == "2. Savgol-EMSC-MeanCenter":
@@ -744,9 +794,10 @@ if tab == "Prediction":
             elif trained_key == "3. Average Replicates: Savgol-SNV-MeanCenter":
                 pred_preprocessed, pred_axis, _group_plot_dict = pre_func(
                     pred_sample_spectra, pred_sample_groups, spectra_dir,
-                    crop_region=crop_region, derivative_order=deriv_order
+                    crop_region=crop_region,
+                    derivative_order=deriv_order,
+                    use_state=preproc_state      
                 )
-
             elif trained_key == "4. Average Replicates: Savgol-EMSC-MeanCenter":
                 out = pre_func(
                     pred_sample_spectra, pred_sample_groups, spectra_dir,
