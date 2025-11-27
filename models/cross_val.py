@@ -213,6 +213,9 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
     if task == 'regression':
         Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y_centered, cv=cv, method='predict', **cv_kwargs)
         Y_proba_CV = None
+        cv_r2_pooled = r2_score(y_centered, Y_pred_CV)
+        cv_rmse_pooled = np.sqrt(mean_squared_error(y_centered, Y_pred_CV))
+        
     else:
         Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict', **cv_kwargs)
         Y_proba_CV = None
@@ -251,6 +254,8 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
         'cv_pred_plot_path': cv_pred_path,
         'cv_table_df': cv_table_df,
         'best_estimator': grid_search.best_estimator_,
-        'fold_df': fold_df
+        'fold_df': fold_df,
+        'cv_r2_pooled': cv_r2_pooled,
+        'cv_rmse_pooled': cv_rmse_pooled
     }
 

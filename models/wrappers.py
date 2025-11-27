@@ -67,7 +67,7 @@ class PLSFeaturizer(BaseEstimator, TransformerMixin):
 
 
 
-def PLS_model(x, y, directory, axis, max_lv=10, analyte="", groups=None, 
+def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None, 
               manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
     
     
@@ -232,6 +232,8 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
     Y_pred_CV = cv_results['Y_pred_CV'] + cv_results['y_mean']
     final_r2_CV = r2_score(y, Y_pred_CV)
     final_mse_CV = mean_squared_error(y, Y_pred_CV)
+    mse_CV = mean_squared_error(y, Y_pred_CV)
+    rmse_CV = np.sqrt(mse_CV)
 
     summary_string=print_model_summary(
         model_name="MLP",
@@ -239,7 +241,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         final_r2=final_r2,
         final_r2_CV=final_r2_CV,
         final_mse=final_mse,
-        final_rmse_CV=final_mse_CV,
+        final_rmse_CV= rmse_CV,
         best_params=cv_results['best_params']
         )
     

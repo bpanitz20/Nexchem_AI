@@ -16,13 +16,15 @@ import tempfile
 from loaders.raman_loader import load_raman
 import matplotlib.pyplot as plt
 import re
+from plotting.plot_raw import plot_spectra_colored_by_analyte
 from preprocessors.raman_preprocess import (
     preprocess_pipeline_1,
     preprocess_pipeline_2,
     group_preprocess,
     group_preprocess_2,
     avg_y_block,
-    preprocess_none
+    preprocess_none,
+    preprocess_pipeline_AsLS_SNV,
 )
 from collections import defaultdict
 
@@ -150,72 +152,144 @@ if tab == "Data Loading":
     with st.expander("📄 Upload Calibration Y-block (Excel with 'ID' column)"):
         y_file = st.file_uploader("Upload GCMS target file", type="xlsx")
 
-    if zip_file and y_file:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = os.path.join(tmpdir, "calib_data.zip")
-            with open(zip_path, "wb") as f:
-                f.write(zip_file.read())
+    # --- Button to actually load data into session_state ---
+    if st.button("Load calibration data"):
+        if not zip_file or not y_file:
+            st.warning("Please upload BOTH the Raman .zip and the GC-MS Y-block file.")
+        else:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, "calib_data.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(zip_file.read())
 
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(os.path.join(tmpdir, "unzipped"))
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(os.path.join(tmpdir, "unzipped"))
 
-            raman_path = os.path.join(tmpdir, "unzipped")
-            spectra_dir = os.path.join(tmpdir, "ignore")
-            os.makedirs(spectra_dir, exist_ok=True)
+                raman_path = os.path.join(tmpdir, "unzipped")
+                spectra_dir = os.path.join(tmpdir, "ignore")
+                os.makedirs(spectra_dir, exist_ok=True)
 
-            # ⬇️ Load raw spectra only (no preprocessing yet!)
-            sample_spectra, shifts, sample_groups = load_raman(raman_path, spectra_dir)
+                # ⬇️ Load raw spectra only (no preprocessing yet!)
+                sample_spectra, shifts, sample_groups = load_raman(raman_path, spectra_dir)
 
-            # Load and validate Y-block
-            y_df = pd.read_excel(y_file)
-            y_df.set_index("ID", inplace=True)
+                # Load and validate Y-block
+                y_df = pd.read_excel(y_file)
+                # index by ID for later use in modeling/preprocessing
+                y_df.set_index("ID", inplace=True)
 
-            st.success("✅ Raw calibration data loaded.")
-            st.write(f"**Raman spectra loaded**: {len(sample_spectra)} samples")
-            st.write(f"**GCMS targets loaded**: {y_df.shape[0]} rows")
+                # ✅ Store raw data for next steps & for fast re-draws
+                st.session_state["raw_spectra"] = sample_spectra
+                st.session_state["y_block"] = y_df
 
-            # Optional: Display Y-block data
-            with st.expander("🔬 Preview GC-MS Y-block"):
-                st.dataframe(y_df, use_container_width=True)
-                
-            # === Automatically Display Overlay ===
-            overlay_path = os.path.join(spectra_dir, "Overlay_Raw.png")
-            if os.path.exists(overlay_path):
-                st.subheader("📊 Overlay of All Raw Spectra")
-                st.image(overlay_path, width=800)
-                
-            # === Interactive Raw Overlay ===
-            st.subheader("🔍 Raw Spectra Visualization")
+                st.success("✅ Raw calibration data loaded.")
+                st.write(f"**Raman spectra loaded**: {len(sample_spectra)} samples")
+                st.write(f"**GCMS targets loaded**: {y_df.shape[0]} rows")
 
-            def sort_key(sample_id):
-                match = re.match(r"(\d+)-(\d+)", sample_id)
-                if match:
-                    return int(match.group(1)), int(match.group(2))
-                return sample_id  # fallback
+    # --- If data already loaded, show visualizations (no re-loading) ---
+    if "raw_spectra" in st.session_state and "y_block" in st.session_state:
+        sample_spectra = st.session_state["raw_spectra"]
+        y_df = st.session_state["y_block"]
 
-            available_ids = sorted(sample_spectra.keys(), key=sort_key)
-            selected_ids = st.multiselect("Select sample(s) to overlay", available_ids)
+        st.write(f"**Raman spectra loaded**: {len(sample_spectra)} samples")
+        st.write(f"**GCMS targets loaded**: {y_df.shape[0]} rows")
 
-            if selected_ids:
-                fig, ax = plt.subplots(figsize=(8, 6))  
-                for sample_id in selected_ids:
-                    for spectrum in sample_spectra[sample_id]:
-                        ax.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
+        # Optional: Display Y-block data
+        with st.expander("🔬 Preview GC-MS Y-block"):
+            st.dataframe(y_df, use_container_width=True)
+
+        # === Spectra Overlay: Color by replicate or analyte ===
+        st.subheader("📊 Spectra Overlay")
+
+        color_mode = st.radio(
+            "Color spectra by:",
+            ["Replicate", "Analyte (Y-block)"],
+            index=0,
+            horizontal=True,
+            key="raw_color_mode"
+        )
+
+        # --- Option 1: color by replicate (pre-made image, if exists) ---
+        if color_mode == "Replicate":
+            overlay_path = os.path.join("ignore", "Overlay_Raw.png")  
             
-                ax.set_title("Overlay of Selected Raw Spectra")
-                ax.set_xlabel("Raman Shift (cm⁻¹)")
-                ax.set_ylabel("Intensity")
-                ax.legend(loc="best", fontsize="small")
-            
-                buf = io.BytesIO()
-                fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-                buf.seek(0)
-                st.image(buf, caption=None, width=800)  # Control actual width in pixels
-                plt.close(fig)
+            fig, ax = plt.subplots(figsize=(8, 5))
+            for sid, spectra in sample_spectra.items():
+                for spectrum in spectra:
+                    ax.plot(spectrum.spectral_axis, spectrum.spectral_data, alpha=0.7)
+            ax.set_title("Raw Spectra (Colored by Replicate)")
+            ax.set_xlabel("Raman Shift (cm⁻¹)")
+            ax.set_ylabel("Intensity")
 
-            # ✅ Store raw data for next step
-            st.session_state["raw_spectra"] = sample_spectra
-            st.session_state["y_block"] = y_df
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+            buf.seek(0)
+            st.image(buf, caption="Spectra colored by replicate", width=800)
+            plt.close(fig)
+
+        # --- Option 2: color by analyte from Y-block ---
+        else:
+            st.markdown("### 🎨 Spectra Colored by Analyte")
+
+            # analyte columns: everything except "Class" (if present)
+            analytes_available = [col for col in y_df.columns if col not in ["Class"]]
+            if not analytes_available:
+                st.warning("No analyte columns available in Y-block to color by.")
+            else:
+                analyte_to_plot = st.selectbox(
+                    "Select analyte to color by:",
+                    analytes_available,
+                    index=0,
+                    key="raw_analyte_select"
+                )
+
+                try:
+                    fig, ax = plot_spectra_colored_by_analyte(
+                        sample_spectra=sample_spectra,
+                        y_df=y_df.reset_index(),  # make sure we have an 'ID' column
+                        analyte_col=analyte_to_plot,
+                        id_col="ID",
+                        use_first_replicate=True,
+                        cmap_name="viridis",
+                        title=f"Raw Spectra Colored by {analyte_to_plot}"
+                    )
+
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                    buf.seek(0)
+                    st.image(buf, caption=f"Colored Overlay by {analyte_to_plot}", width=800)
+                    plt.close(fig)
+
+                except Exception as e:
+                    st.warning(f"Could not generate analyte-colored overlay: {e}")
+
+        # === Individual Raw Spectra Viewer ===
+        st.subheader("🔍 Individual Spectra")
+
+        def sort_key(sample_id):
+            match = re.match(r"(\d+)-(\d+)", sample_id)
+            if match:
+                return int(match.group(1)), int(match.group(2))
+            return sample_id  # fallback
+
+        available_ids = sorted(sample_spectra.keys(), key=sort_key)
+        selected_ids = st.multiselect("Select sample(s) to overlay", available_ids)
+
+        if selected_ids:
+            fig, ax = plt.subplots(figsize=(8, 6))
+            for sample_id in selected_ids:
+                for spectrum in sample_spectra[sample_id]:
+                    ax.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
+
+            ax.set_title("Raw Spectra")
+            ax.set_xlabel("Raman Shift (cm⁻¹)")
+            ax.set_ylabel("Intensity")
+            ax.legend(loc="best", fontsize="small")
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+            buf.seek(0)
+            st.image(buf, width=800)
+            plt.close(fig)
 
 # === TAB 2: Preprocessing ===
 if tab == "Preprocessing":
@@ -226,12 +300,12 @@ if tab == "Preprocessing":
 
         from ramanspy import Spectrum
 
+        # === NEW Preprocessing Menu (NO EMSC) ===
         preprocess_options = {
             "1. Savgol-SNV-MeanCenter": preprocess_pipeline_2,
-            "2. Savgol-EMSC-MeanCenter": preprocess_pipeline_1,                     
+            "2. Baseline-Smooth-SNV": preprocess_pipeline_AsLS_SNV,
             "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
-            "4. Average Replicates: Savgol-EMSC-MeanCenter": group_preprocess,     
-            "5. None": preprocess_none
+            "4. None": preprocess_none
         }
 
         selected_method = st.selectbox("Choose preprocessing method:", list(preprocess_options.keys()))
@@ -241,98 +315,90 @@ if tab == "Preprocessing":
         crop_max = st.number_input("Crop region max (cm⁻¹)", value=1800)
         crop_region = (crop_min, crop_max)
 
-        # === Method-Specific Parameters ===
+        # === Method-Specific parameters ===
         deriv_order = None
-        emsc_p_order = None
-
-        if selected_method in ["1. Savgol-SNV-MeanCenter", "3. Average Replicates: Savgol-SNV-MeanCenter"]:
+        if selected_method in ["1. Savgol-SNV-MeanCenter",
+                               "3. Average Replicates: Savgol-SNV-MeanCenter"]:
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
 
-        if selected_method in ["2. Savgol-EMSC-MeanCenter", "4. Average Replicates: Savgol-EMSC-MeanCenter"]:
-            deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
-            emsc_p_order = st.number_input("EMSC polynomial order", min_value=1, max_value=6, value=2)
+        # AsLS/SavGol parameters (optional)
+        if selected_method == "2. Baseline-Smooth-SNV":
+            asls_lambda = st.number_input("AsLS lambda", value=1e5, format="%.1e")
+            asls_p = st.number_input("AsLS asymmetry p", value=0.001, format="%.3f")
+            sg_window = st.number_input("Savitzky–Golay window length", value=13)
+            sg_polyorder = st.number_input("Savitzky–Golay polynomial order", value=2)
 
         run_button = st.button("Run Preprocessing")
 
         if run_button:
             sample_spectra = st.session_state["raw_spectra"]
-            y_df = st.session_state["y_block"]
             spectra_dir = "./temp_preprocess"
             os.makedirs(spectra_dir, exist_ok=True)
 
-            # === Run Preprocessing ===
+            # === SELECTED PIPELINE ===
             if selected_method == "1. Savgol-SNV-MeanCenter":
                 preprocessed_spectra, cropped_axis, preproc_state = preprocess_pipeline_2(
                     sample_spectra, spectra_dir,
-                    crop_region=crop_region, derivative_order=deriv_order,
+                    crop_region=crop_region,
+                    derivative_order=deriv_order,
                     return_state=True
                 )
                 st.session_state["preproc_state"] = preproc_state
+
+            elif selected_method == "2. Baseline-Smooth-SNV":
+                preprocessed_spectra, cropped_axis = preprocess_pipeline_AsLS_SNV(
+                    sample_spectra, spectra_dir,
+                    crop_region=crop_region,
+                    asls_lambda=asls_lambda,
+                    asls_p=asls_p,
+                    sg_window=sg_window,
+                    sg_polyorder=sg_polyorder
+                )
+                
+                # === Save AsLS/Savitzky parameters for use during prediction ===
+                st.session_state["trained_asls_lambda"] = asls_lambda
+                st.session_state["trained_asls_p"] = asls_p
+                st.session_state["trained_sg_window"] = sg_window
+                st.session_state["trained_sg_polyorder"] = sg_polyorder
 
             elif selected_method == "3. Average Replicates: Savgol-SNV-MeanCenter":
+                # Create group dict
                 sample_groups = defaultdict(list)
-                for sample_id in sample_spectra.keys():
-                    group_id = sample_id.split("-")[0]
-                    sample_groups[group_id].append(sample_id)
-            
-                # 1) Get fitted state (global mean) for reuse later
+                for sid in sample_spectra.keys():
+                    gid = sid.split("-")[0]
+                    sample_groups[gid].append(sid)
+
+                # Fit state
                 _, _, preproc_state = group_preprocess_2(
                     sample_spectra, sample_groups, spectra_dir,
-                    crop_region=crop_region, derivative_order=deriv_order,
+                    crop_region=crop_region,
+                    derivative_order=deriv_order,
                     return_state=True
                 )
                 st.session_state["preproc_state"] = preproc_state
-            
-                # 2) Get group-averaged spectra + plots for UI
+
+                # Produce averaged spectra
                 preprocessed_spectra, cropped_axis, group_plot_dict = group_preprocess_2(
                     sample_spectra, sample_groups, spectra_dir,
-                    crop_region=crop_region, derivative_order=deriv_order
-                )
-                st.session_state["group_plots"] = group_plot_dict  # store the figures for UI
-            
-                group_avg_Y = avg_y_block(st.session_state["y_block"])
-                st.session_state["y_block"] = group_avg_Y
-                st.session_state["sample_groups"] = sample_groups
-
-
-            elif selected_method == "2. Savgol-EMSC-MeanCenter":
-                preprocessed_spectra, cropped_axis = preprocess_pipeline_1(
-                    sample_spectra, spectra_dir,
                     crop_region=crop_region,
-                    emsc_p_order=emsc_p_order,
-                    deriv_order=deriv_order
+                    derivative_order=deriv_order
                 )
-
-            elif selected_method == "4. Average Replicates: Savgol-EMSC-MeanCenter":
-                sample_groups = defaultdict(list)
-                for sample_id in sample_spectra.keys():
-                    group_id = sample_id.split("-")[0]
-                    sample_groups[group_id].append(sample_id)
-
-                preprocessed_spectra, cropped_axis, group_replicates, group_plot_dict = group_preprocess(
-                    sample_spectra, sample_groups, spectra_dir,
-                    crop_region=crop_region,
-                    emsc_p_order=emsc_p_order,
-                    deriv_order=deriv_order
-                    )
 
                 st.session_state["group_plots"] = group_plot_dict
-                group_avg_Y = avg_y_block(st.session_state["y_block"])
-                st.session_state["y_block"] = group_avg_Y
-  
-            elif selected_method == "5. None":
+                st.session_state["y_block"] = avg_y_block(st.session_state["y_block"])
+                st.session_state["sample_groups"] = sample_groups
+
+            elif selected_method == "4. None":
                 preprocessed_spectra, cropped_axis = preprocess_none(
                     sample_spectra, spectra_dir,
-                    crop_region=crop_region,
-                    )
+                    crop_region=crop_region
+                )
 
+            # === Save results to session ===
             st.session_state["trained_preprocess_key"] = selected_method
             st.session_state["trained_crop_region"] = crop_region
             st.session_state["trained_deriv_order"] = deriv_order
-            st.session_state["trained_emsc_p_order"] = emsc_p_order
-            st.session_state["trained_is_group"] = selected_method.startswith(("3.", "4."))
             st.session_state["trained_axis"] = cropped_axis
-
             st.session_state["preprocessed_spectra"] = preprocessed_spectra
             st.session_state["cropped_axis"] = cropped_axis
             st.session_state["preprocessing_done"] = True
@@ -340,31 +406,81 @@ if tab == "Preprocessing":
             st.success(f"✅ Preprocessing complete using: {selected_method}")
             st.write(f"Processed {len(preprocessed_spectra)} entries")
 
-        # === Display Results if available ===
+        # === Display Results ===
         if st.session_state.get("preprocessing_done", False):
             preprocessed_spectra = st.session_state["preprocessed_spectra"]
+            y_df = st.session_state.get("y_block", None)
 
-            st.subheader("📊 Overlay of All Preprocessed Spectra")
-            fig, ax = plt.subplots(figsize=(8, 5))
-            for sample_id, spectra in preprocessed_spectra.items():
-                if isinstance(spectra, Spectrum):
-                    spectra = [spectra]
-                for spectrum in spectra:
-                    ax.plot(spectrum.spectral_axis, spectrum.spectral_data, alpha=0.7)
-            
-            ax.relim()
-            ax.autoscale_view()
-            ax.set_title("Overlay of All Preprocessed Spectra")
-            ax.set_xlabel("Raman Shift (cm⁻¹)")
-            ax.set_ylabel("Intensity")
-            
-            buf = io.BytesIO()
-            fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-            buf.seek(0)
-            st.image(buf, width=800)
-            plt.close(fig)
+            # ---------- Overlay with color-mode toggle ----------
+            st.subheader("📊 Preprocessed Spectra Overlay")
 
-            st.subheader("🔍 Preprocessed Spectra Visualization")
+            color_options = ["Replicate"]
+            if y_df is not None:
+                color_options.append("Analyte (Y-block)")
+
+            color_mode = st.radio(
+                "Color spectra by:",
+                color_options,
+                index=0,
+                horizontal=True,
+                key="preproc_color_mode"
+            )
+
+            if color_mode == "Replicate":
+                # Neutral overlay, all spectra same color
+                fig, ax = plt.subplots(figsize=(8, 5))
+                for sid, spectra in preprocessed_spectra.items():
+                    if isinstance(spectra, Spectrum):
+                        spectra = [spectra]
+                    for spectrum in spectra:
+                        ax.plot(spectrum.spectral_axis, spectrum.spectral_data, alpha=0.7)
+
+                ax.set_title("Overlay of All Preprocessed Spectra (Colored by Replicate)")
+                ax.set_xlabel("Raman Shift (cm⁻¹)")
+                ax.set_ylabel("Intensity")
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                buf.seek(0)
+                st.image(buf, width=800)
+                plt.close(fig)
+
+            else:
+                # Color by analyte from Y-block (e.g. EPA+DHA, PUFA)
+                st.markdown("### 🎨 Preprocessed Spectra Colored by Analyte")
+
+                analytes_available = [col for col in y_df.columns if col not in ["Class"]]
+                if not analytes_available:
+                    st.warning("No analyte columns available in Y-block to color by.")
+                else:
+                    analyte_to_plot = st.selectbox(
+                        "Select analyte to color by:",
+                        analytes_available,
+                        index=0,
+                        key="preproc_analyte_select"
+                    )
+
+                    try:
+                        fig, ax = plot_spectra_colored_by_analyte(
+                            sample_spectra=preprocessed_spectra,
+                            y_df=y_df,
+                            analyte_col=analyte_to_plot,
+                            id_col="ID",  # will fall back to index if no 'ID' col
+                            use_first_replicate=True,
+                            cmap_name="viridis",
+                            title=f"Preprocessed Spectra Colored by {analyte_to_plot}"
+                        )
+
+                        buf = io.BytesIO()
+                        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+                        buf.seek(0)
+                        st.image(buf, caption=f"Colored Overlay by {analyte_to_plot}", width=800)
+                        plt.close(fig)
+                    except Exception as e:
+                        st.warning(f"Could not generate analyte-colored overlay: {e}")
+
+            # ---------- Individual preprocessed spectra view ----------
+            st.subheader("🔍 Individual Spectra")
 
             def sort_key(sample_id):
                 import re
@@ -378,39 +494,49 @@ if tab == "Preprocessing":
 
             if selected_ids:
                 group_plots = st.session_state.get("group_plots", {})
-            
-                # Check if all selected samples are group-averaged
+
+                # If all selected IDs are group-averaged (have stored plots)
                 if all(sample_id in group_plots for sample_id in selected_ids):
-                    # Option: show individual group plots stacked with fixed width
                     for sample_id in selected_ids:
                         st.subheader(f"Overlay Plot for Group: {sample_id}")
                         fig = group_plots[sample_id]
-                        
+
                         buf = io.BytesIO()
                         fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
                         buf.seek(0)
-                        st.image(buf, caption=None, width=800)
-                        plt.close(fig)  # optional cleanup
+                        st.image(buf, width=800)
+                        plt.close(fig)
+
                 else:
-                    # Overlay individual spectra
+                    # Overlay individual spectra for selected IDs
                     fig, ax = plt.subplots(figsize=(8, 5))
                     for sample_id in selected_ids:
                         spectra = preprocessed_spectra[sample_id]
                         if isinstance(spectra, Spectrum):
-                            spectra = [spectrum]
+                            spectra = [spectra]
                         for spectrum in spectra:
-                            ax.plot(spectrum.spectral_axis, spectrum.spectral_data, label=sample_id)
-            
+                            ax.plot(
+                                spectrum.spectral_axis,
+                                spectrum.spectral_data,
+                                label=sample_id
+                            )
+
                     ax.set_title("Overlay of Selected Preprocessed Spectra")
                     ax.set_xlabel("Raman Shift (cm⁻¹)")
                     ax.set_ylabel("Intensity")
                     ax.legend(loc="best", fontsize="small")
-            
+
                     buf = io.BytesIO()
                     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
                     buf.seek(0)
-                    st.image(buf, caption=None, width=800)
+                    st.image(buf, width=800)
                     plt.close(fig)
+
+
+
+
+
+
 
 # === TAB 3: Modeling ===
 if tab == "Modeling":
@@ -689,9 +815,11 @@ if tab == "Modeling":
                 if scoreplot_path and os.path.exists(scoreplot_path):
                     st.image(scoreplot_path, caption=f"LV1 vs LV2 Scores – {analyte}", width=500)
 
+
 # === TAB 4: Prediction ===
 from models.prediction_eval import evaluate_on_prediction_set
 from preprocessors.aligner import align_xy, align_group_xy
+
 def _flatten_preprocessed_to_matrix(preprocessed_dict):
     """Return (X, sample_ids) from {sample_id: Spectrum or [Spectrum, ...]}."""
     rows = []
@@ -717,28 +845,29 @@ if tab == "Prediction":
     with st.expander("📄 (Optional) Upload Prediction Y-block (Excel with 'ID' column)"):
         pred_y_file = st.file_uploader("Upload reference Y file (optional)", type="xlsx", key="pred_y")
 
-
-
-
     # === Pull training-time choices ===
-    trained_key   = st.session_state.get("trained_preprocess_key")
-    trained_axis  = st.session_state.get("trained_axis")
-    crop_region   = st.session_state.get("trained_crop_region", (800, 1800))
-    deriv_order   = st.session_state.get("trained_deriv_order", 1)
-    emsc_p_order  = st.session_state.get("trained_emsc_p_order", 2)
+    trained_key      = st.session_state.get("trained_preprocess_key")
+    trained_axis     = st.session_state.get("trained_axis")
+    crop_region      = st.session_state.get("trained_crop_region", (800, 1800))
+    deriv_order      = st.session_state.get("trained_deriv_order", 1)
     trained_is_group = st.session_state.get("trained_is_group", False)
-    preproc_state = st.session_state.get("preproc_state")
+    preproc_state    = st.session_state.get("preproc_state")
+
+    # (optional) AsLS / Savgol params if you decide to store them from the Preprocessing tab
+    asls_lambda  = st.session_state.get("trained_asls_lambda", 1e5)
+    asls_p       = st.session_state.get("trained_asls_p", 0.001)
+    sg_window    = st.session_state.get("trained_sg_window", 13)
+    sg_polyorder = st.session_state.get("trained_sg_polyorder", 2)
 
     if trained_key is None:
         st.error("No trained preprocessing found. Please run the Preprocessing tab first.")
 
-    # map the saved key back to the callable
+    # === Must match the keys/names used in TAB 2 ===
     preprocess_options = {
         "1. Savgol-SNV-MeanCenter": preprocess_pipeline_2,
-        "2. Savgol-EMSC-MeanCenter": preprocess_pipeline_1,
+        "2. Baseline-Smooth-SNV": preprocess_pipeline_AsLS_SNV,
         "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
-        "4. Average Replicates: Savgol-EMSC-MeanCenter": group_preprocess,
-        "5. None": preprocess_none
+        "4. None": preprocess_none
     }
 
     if trained_key in preprocess_options:
@@ -746,9 +875,6 @@ if tab == "Prediction":
     else:
         st.error(f"Unrecognized preprocessing key: {trained_key}")
         st.stop()
-
-
-
 
     if st.button("Run Prediction"):
         if pred_zip_file is None:
@@ -763,8 +889,8 @@ if tab == "Prediction":
                 zip_ref.extractall(spectra_dir)
 
             pred_sample_spectra, _, _ = load_raman(pred_dir, spectra_dir)
-            
-            
+
+            # Grouping logic (only for method 3)
             if trained_is_group:
                 from collections import defaultdict
                 pred_sample_groups = defaultdict(list)
@@ -782,13 +908,18 @@ if tab == "Prediction":
                     pred_sample_spectra, spectra_dir,
                     crop_region=crop_region,
                     derivative_order=deriv_order,
-                    use_state=preproc_state      
+                    use_state=preproc_state
                 )
 
-            elif trained_key == "2. Savgol-EMSC-MeanCenter":
+            elif trained_key == "2. Baseline-Smooth-SNV":
+                # Stateless: no use_state needed
                 pred_preprocessed, pred_axis = pre_func(
                     pred_sample_spectra, spectra_dir,
-                    crop_region=crop_region, emsc_p_order=emsc_p_order, deriv_order=deriv_order
+                    crop_region=crop_region,
+                    asls_lambda=asls_lambda,
+                    asls_p=asls_p,
+                    sg_window=sg_window,
+                    sg_polyorder=sg_polyorder
                 )
 
             elif trained_key == "3. Average Replicates: Savgol-SNV-MeanCenter":
@@ -796,20 +927,10 @@ if tab == "Prediction":
                     pred_sample_spectra, pred_sample_groups, spectra_dir,
                     crop_region=crop_region,
                     derivative_order=deriv_order,
-                    use_state=preproc_state      
+                    use_state=preproc_state
                 )
-            elif trained_key == "4. Average Replicates: Savgol-EMSC-MeanCenter":
-                out = pre_func(
-                    pred_sample_spectra, pred_sample_groups, spectra_dir,
-                    crop_region=crop_region, emsc_p_order=emsc_p_order, deriv_order=deriv_order
-                )
-                # support 2-return or 4-return variants
-                if isinstance(out, tuple) and len(out) >= 2:
-                    pred_preprocessed, pred_axis = out[0], out[1]
-                else:
-                    pred_preprocessed, pred_axis = out
 
-            elif trained_key == "5. None":
+            elif trained_key == "4. None":
                 pred_preprocessed, pred_axis = preprocess_none(
                     pred_sample_spectra, spectra_dir,
                     crop_region=crop_region
@@ -823,30 +944,28 @@ if tab == "Prediction":
             filtered_pred_sample_ids = list(pred_preprocessed.keys())
             Y_pred_true = None
 
-
             try:
                 if pred_y_file is not None:
                     y_pred_df = pd.read_excel(pred_y_file)
                     if "ID" not in y_pred_df.columns:
                         st.warning("Prediction Y file must contain an 'ID' column.")
                         st.stop()
-            
+
                     # normalize ID strings
                     y_pred_df["ID"] = y_pred_df["ID"].astype(str).str.strip()
                     y_pred_df.set_index("ID", inplace=True)
-            
+
                     if trained_is_group:
                         # Group Y the SAME way as training (prefix before first "-")
                         num_cols = y_pred_df.select_dtypes(include=[np.number]).columns
                         y_pred_df["_group_id"] = y_pred_df.index.map(lambda s: str(s).split("-")[0])
                         y_pred_group = y_pred_df.groupby("_group_id")[num_cols].mean()
-            
-                        # (Optional) quick sanity check
+
                         x_groups = set(map(str, pred_preprocessed.keys()))
                         y_groups = set(map(str, y_pred_group.index))
                         if x_groups.isdisjoint(y_groups):
                             st.warning("Heads-up: no overlap after grouping — check group prefixes/casing/whitespace.")
-            
+
                         # align_group_xy returns 5 values
                         filtered_X_pred, filtered_Y_pred, filtered_pred_sample_ids, class_labels, unmatched_ids = align_group_xy(
                             pred_preprocessed, y_pred_group
@@ -856,21 +975,19 @@ if tab == "Prediction":
                         (filtered_X_pred, filtered_Y_pred,
                          filtered_pred_sample_ids, filtered_group_labels,
                          class_labels, unmatched_ids) = align_xy(pred_preprocessed, y_pred_df)
-            
-                    # Y may be a DataFrame or ndarray; grab values if present
+
                     Y_pred_true = filtered_Y_pred.values if hasattr(filtered_Y_pred, "values") else filtered_Y_pred
-            
+
                 else:
-                    # Build X if no Y provided (safe for Spectrum or list[Spectrum])
+                    # Build X if no Y provided
                     filtered_X_pred, filtered_pred_sample_ids = _flatten_preprocessed_to_matrix(pred_preprocessed)
                     Y_pred_true = None
-            
+
             except Exception as e:
                 st.warning(f"Y-block alignment failed: {e}")
-                # Fallback: safely flatten preprocessed spectra
                 filtered_X_pred, filtered_pred_sample_ids = _flatten_preprocessed_to_matrix(pred_preprocessed)
                 Y_pred_true = None
-                       
+
             # === Run Predictions ===
             model_results = st.session_state.get("model_results", {})
             axis = trained_axis if trained_axis is not None else pred_axis
@@ -903,18 +1020,17 @@ if tab == "Prediction":
                 for output in prediction_outputs:
                     st.markdown(f"### {output['analyte']} ({output['model_name']})")
 
-                    # Show metrics if Y available
                     if "r2_pred" in output:
                         st.markdown(f"**R²_pred**: {output['r2_pred']:.4f}  \n**RMSEP**: {output['rmsep']:.4f}")
 
-                    # Show DataFrame of predicted values
                     if "csv_path" in output and os.path.exists(output["csv_path"]):
                         df = pd.read_csv(output["csv_path"])
                         st.dataframe(df)
 
-                    # Show plot
                     if "pred_plot_path" in output and os.path.exists(output["pred_plot_path"]):
                         st.image(output["pred_plot_path"], caption="Predicted vs Actual", use_container_width=True)
+
+
 
 # === TAB 5: PCA Analysis ===
 if tab == "PCA":
