@@ -10,6 +10,7 @@ dependencies:
   - seaborn
   - openpyxl
   - scipy
+  - streamlit
   - ipython
   - jupyter_client
   - jupyter_core
