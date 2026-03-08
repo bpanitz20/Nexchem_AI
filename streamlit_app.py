@@ -27,7 +27,7 @@ from preprocessors.raman_preprocess import (
     preprocess_pipeline_AsLS_SNV,
 )
 from collections import defaultdict
-
+from pathlib import Path
 
 
 def ensure_class_colors_from_y(y_df, class_col):
@@ -145,7 +145,41 @@ if tab == "Home":
 # === Step 1: Data Loading ===
 if tab == "Data Loading":
     st.header("Step 1: Load Raw Calibration Data")
+    
+    st.subheader("📂 Output Directory")
 
+    default_outdir = st.session_state.get(
+    "outdir",
+    str(Path.home() / "Desktop")
+    )
+    
+    outdir = st.text_input(
+        "Output Directory",
+        value=default_outdir
+    )
+    
+    if st.button("Set Output Directory"):
+        os.makedirs(outdir, exist_ok=True)
+    
+        spectra_root = os.path.join(outdir, "spectra")
+        raw_dir = os.path.join(spectra_root, "raw")
+        preproc_dir = os.path.join(spectra_root, "preprocessed")
+        models_dir = os.path.join(outdir, "models")
+        pred_dir = os.path.join(outdir, "predictions")
+    
+        os.makedirs(raw_dir, exist_ok=True)
+        os.makedirs(preproc_dir, exist_ok=True)
+        os.makedirs(models_dir, exist_ok=True)
+        os.makedirs(pred_dir, exist_ok=True)
+    
+        st.session_state["outdir"] = outdir
+        st.session_state["raw_spectra_dir"] = raw_dir
+        st.session_state["preproc_spectra_dir"] = preproc_dir
+        st.session_state["models_dir"] = models_dir
+        st.session_state["pred_dir"] = pred_dir
+    
+        st.success(f"Results will be saved to: {outdir}")
+        
     with st.expander("📁 Upload Calibration Raman Spectra (.zip of .spc files)"):
         zip_file = st.file_uploader("Upload a .zip file", type="zip")
 
@@ -166,7 +200,7 @@ if tab == "Data Loading":
                     zip_ref.extractall(os.path.join(tmpdir, "unzipped"))
 
                 raman_path = os.path.join(tmpdir, "unzipped")
-                spectra_dir = os.path.join(tmpdir, "ignore")
+                spectra_dir = st.session_state["raw_spectra_dir"]
                 os.makedirs(spectra_dir, exist_ok=True)
 
                 # ⬇️ Load raw spectra only (no preprocessing yet!)
@@ -332,7 +366,7 @@ if tab == "Preprocessing":
 
         if run_button:
             sample_spectra = st.session_state["raw_spectra"]
-            spectra_dir = "./temp_preprocess"
+            spectra_dir = st.session_state["preproc_spectra_dir"]
             os.makedirs(spectra_dir, exist_ok=True)
 
             # === SELECTED PIPELINE ===
@@ -667,8 +701,12 @@ if tab == "Modeling":
                 elif group_strategy == "Class":
                     group_labels = classes
 
-            results_dir = "./Model_Results"
-            os.makedirs(results_dir, exist_ok=True)
+            if "models_dir" not in st.session_state:
+                st.error("Please set the Output Directory in the Data Loading tab.")
+                st.stop()
+            
+            results_dir = st.session_state["models_dir"]
+            
             
             color_labels = None
             if coloring_option == "Class":
@@ -881,7 +919,8 @@ if tab == "Prediction":
             st.warning("Please upload a zip file of Raman spectra first.")
         else:
             # === Extract and Load Spectra ===
-            pred_dir = "./temp_prediction"
+            pred_dir = st.session_state["pred_dir"]
+                      
             spectra_dir = os.path.join(pred_dir, "spectra")
             os.makedirs(spectra_dir, exist_ok=True)
 
@@ -991,8 +1030,13 @@ if tab == "Prediction":
             # === Run Predictions ===
             model_results = st.session_state.get("model_results", {})
             axis = trained_axis if trained_axis is not None else pred_axis
-            results_dir = "./Model_Results"
-
+            
+            if "models_dir" not in st.session_state:
+                st.error("Please set the Output Directory in the Data Loading tab.")
+                st.stop()
+                        
+            results_dir = st.session_state["pred_dir"]
+            
             if not model_results:
                 st.warning("No trained models found. Please train models first in the Modeling tab.")
             else:
@@ -1083,9 +1127,12 @@ if tab == "PCA":
         else:
             filtered_X, _, _, _, classes, _ = align_xy(raw_X, raw_Y)
 
-        # Create results directory
-        results_dir = "./Model_Results"
-        os.makedirs(results_dir, exist_ok=True)
+        #Directory
+        if "models_dir" not in st.session_state:
+            st.error("Please set the Output Directory in the Data Loading tab.")
+            st.stop()
+        
+        results_dir = st.session_state["models_dir"]
 
         # === Run PCA and Plot ===
         st.subheader(f"📊 PCA Score Plot (PC{pc_x} vs PC{pc_y})")

@@ -104,7 +104,7 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
                                 best_params, optimal_param, param_name)
 
 
-
+"""
 def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels=None):
     plt.figure(figsize=(8, 6))
 
@@ -148,6 +148,201 @@ def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels
 
     plt.savefig(os.path.join(directory, filename), dpi=300, bbox_inches="tight")
     plt.close()
+
+"""
+
+
+
+def plot_pred_vs_actual(
+    y_true,
+    y_pred,
+    directory,
+    title,
+    filename,
+    class_labels=None,
+):
+
+    y_true = np.asarray(y_true).ravel()
+    y_pred = np.asarray(y_pred).ravel()
+
+    fig, ax = plt.subplots(figsize=(8,6))
+
+    # ---- style map ----
+    style_map = {
+        "2016":        {"marker": "D", "color": "red"},
+        "2022-2023":   {"marker": "s", "color": "lightgreen"},
+        "2023-2024":   {"marker": "^", "color": "blue"},
+        "2018":        {"marker": "v", "color": "turquoise"},
+        "2017":        {"marker": "*", "color": "pink"},
+        "2022":        {"marker": "o", "color": "gold"},
+        "2023":        {"marker": "D", "color": "darkgreen"},
+        "2021-2022":   {"marker": "s", "color": "darkblue"},
+    }
+
+    # Desired legend order
+    legend_order = [
+        "Fit",
+        "1:1",
+        "2016",
+        "2022-2023",
+        "2023-2024",
+        "2018",
+        "2017",
+        "2022",
+        "2023",
+        "2021-2022"
+    ]
+
+    lo = float(np.nanmin([y_true.min(), y_pred.min()]))
+    hi = float(np.nanmax([y_true.max(), y_pred.max()]))
+
+    # ---- 1:1 line ----
+    line_ideal, = ax.plot(
+        [lo, hi], [lo, hi],
+        linestyle="--",
+        linewidth=1.2,
+        color="green",
+        label="1:1",
+        zorder=1
+    )
+
+    # ---- Fit line ----
+    slope, intercept = np.polyfit(y_true, y_pred, 1)
+    x_line = np.linspace(lo, hi, 200)
+
+    line_fit, = ax.plot(
+        x_line,
+        slope * x_line + intercept,
+        linestyle="-",
+        linewidth=1.6,
+        alpha=0.5,
+        color="red",
+        label=f"Fit (slope = {slope:.4f})",
+        zorder=1
+    )
+
+    # ---- scatter points ----
+    scatter_handles = {}
+
+    if class_labels is not None:
+        class_labels = np.asarray(class_labels).astype(str)
+        unique_labels = np.unique(class_labels)
+
+        for label in unique_labels:
+            idx = class_labels == label
+
+            marker = style_map.get(label, {}).get("marker", "o")
+            color = style_map.get(label, {}).get("color", "black")
+
+            size = 50
+            if marker == "*":
+                size = 80
+
+            sc = ax.scatter(
+                y_true[idx],
+                y_pred[idx],
+                marker=marker,
+                s=size,
+                facecolor=color,
+                edgecolor="black",
+                linewidth=0.5,
+                alpha=0.85,
+                label=label,
+                zorder=3
+            )
+
+            scatter_handles[label] = sc
+
+    else:
+        ax.scatter(
+            y_true,
+            y_pred,
+            s=55,
+            facecolor="blue",
+            edgecolor="black",
+            zorder=3
+        )
+
+    # ---- build ordered legend ----
+    legend_map = {
+        "Fit": line_fit,
+        "1:1": line_ideal,
+        **scatter_handles
+    }
+
+    ordered_handles = []
+    ordered_labels = []
+
+    for key in legend_order:
+        if key in legend_map:
+            h = legend_map[key]
+            ordered_handles.append(h)
+    
+            # Use the actual plotted label for the fit line (so slope shows)
+            if key == "Fit":
+                ordered_labels.append(h.get_label())  # "Fit (slope = ...)"
+            else:
+                ordered_labels.append(key)
+
+    ax.legend(
+    ordered_handles,
+    ordered_labels,
+    loc="upper left",
+    frameon=True
+)
+
+    # ---- labels ----
+    ax.set_xlabel("Actual Values")
+    ax.set_ylabel("Predicted Values")
+    ax.set_title(title)
+
+    # ---- grid ----
+    ax.grid(True, linewidth=0.6, alpha=0.25)
+
+    # ---- clean journal style ----
+    ax.spines["top"].set_visible(True)
+    ax.spines["right"].set_visible(True)
+
+    # ---- ticks INSIDE plot ----
+    ax.tick_params(
+        axis='both',
+        direction='in',
+        length=6,
+        width=1
+    )
+
+    fig.tight_layout()
+    
+    # ---- save ----
+    os.makedirs(directory, exist_ok=True)
+    
+    fig.tight_layout()
+    
+    # Save original file (PNG or whatever filename specifies)
+    fig.savefig(
+        os.path.join(directory, filename),
+        dpi=300,
+        bbox_inches="tight"
+    )
+    
+    # Save additional PDF copy
+    base, _ = os.path.splitext(filename)
+    pdf_name = base + ".pdf"
+    
+    fig.savefig(
+        os.path.join(directory, pdf_name),
+        bbox_inches="tight"
+    )
+    
+    plt.close(fig)
+    
+
+
+
+
+
+
+
 
 
 def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_name, analyte, model_name, directory):
@@ -215,7 +410,9 @@ def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, t
     plt.savefig(os.path.join(directory, f'Feature_Importance_{model_name}_{analyte}.png'), dpi=300)
     plt.close()
 
-def plot_vip_scores(pls_model, x, axis, directory, model_name, analyte):
+def plot_vip_scores(pls_model, x, axis, directory, 
+                    model_name, analyte,
+                    label_peaks=False):
     """
     Compute and plot VIP scores for a fitted PLS model.
     """
@@ -228,18 +425,70 @@ def plot_vip_scores(pls_model, x, axis, directory, model_name, analyte):
     total_s = np.sum(s)
 
     vip = np.sqrt(p * (np.dot(np.square(w), s)) / total_s)
+    
 
     # Plot VIP scores
     plt.figure(figsize=(10, 5))
     plt.plot(axis, vip, label='VIP Scores')
-    plt.axhline(1.0, color='red', linestyle='--', label='VIP = 1 Threshold')
-    plt.xlabel('Wavenumber (cm⁻¹)')
-    plt.ylabel('VIP Score')
-    plt.title(f'VIP Scores for {analyte} ({model_name})')
+    plt.axhline(1.0, color='red', linestyle='--', label='Significance Threshold')
+    
+    
+    if label_peaks:
+        
+        # ---- Label top N VIP peaks with minimum separation (cm^-1) ----
+        top_n = 10
+        min_sep = 10  # <-- change to 5 or 10 etc (in cm^-1)
+        
+        axis_arr = np.asarray(axis)
+        vip_arr = np.asarray(vip)
+        
+        # Optional: only consider points within your plot window
+        in_window = (axis_arr >= 800) & (axis_arr <= 1800)
+        cand_idx = np.where(in_window)[0]
+        
+        # Sort candidate indices by VIP descending
+        cand_sorted = cand_idx[np.argsort(vip_arr[cand_idx])[::-1]]
+        
+        selected = []
+        for i in cand_sorted:
+            if all(abs(axis_arr[i] - axis_arr[j]) >= min_sep for j in selected):
+                selected.append(i)
+            if len(selected) == top_n:
+                break
+        
+        # Annotate selected peaks
+        for i in selected:
+            plt.scatter(axis_arr[i], vip_arr[i], color="black", s=20, zorder=5)
+            plt.text(
+                axis_arr[i],
+                vip_arr[i] + 0.08,
+                f"{int(round(axis_arr[i]))}",
+                fontsize=9,
+                ha="center",
+                va="bottom",
+                zorder=6,
+            )
+        
+    
+    plt.xlabel('Raman Shift (cm⁻¹)')
+    #plt.xlim(800, 1801)
+    #plt.ylim(0, 3)
+    
+    #plt.xticks(np.arange(800, 1801, 200))
+    #plt.yticks(np.arange(0, 3.1, 0.5))
+        
+    plt.ylabel('VIP Scores')
+    plt.title(f'VIP Scores for {analyte}')
     plt.legend()
-    plt.grid(True)
+    plt.grid(True, linestyle="-", linewidth=0.4, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(os.path.join(directory, f'VIP_Scores_{model_name}_{analyte}.png'), dpi=300)
+    
+    
+    os.makedirs(directory, exist_ok=True)
+    out_base = os.path.join(directory, f"VIP_Scores_{model_name}_{analyte}")
+    plt.savefig(out_base + ".pdf")          # vector
+    plt.savefig(out_base + ".png", dpi=300) # raster backup
+        
     plt.close()
     
     
