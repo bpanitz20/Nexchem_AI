@@ -28,7 +28,8 @@ from plotting.plot_regression import (
     print_model_summary,
     print_CV_table,
     plot_t2_q_residuals,
-    plot_pls_scores
+    plot_pls_scores,
+    plot_cv_performance,
 )
 from plotting.plot_classifier import (
     plot_confusion_matrix,
@@ -67,27 +68,33 @@ class PLSFeaturizer(BaseEstimator, TransformerMixin):
 
 
 
-def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None, 
-              manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
-    
-    
+def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
+                 manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
+    """
+    Pure computation layer for PLS regression.
+    Runs cross-validation, fits the final model, and computes all metrics.
+    No plots are generated. Use plot_pls_results() to produce diagnostic plots.
+
+    Returns a result dict with identical keys to PLS_model(), plus:
+      'param_name'  — hyperparameter name ('n_components')
+      'param_range' — list of values swept during CV
+    """
     param_name = 'n_components'
     param_range = list(range(1, max_lv + 1))
     model = PLSRegression()
 
     # Run CV
-    cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte, 
+    cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte,
                           groups=groups, model_name='PLS', directory=directory,
-                          manual_param=manual_param, n_folds=n_folds, sample_ids=sample_ids, class_labels=class_labels)
+                          manual_param=manual_param, n_folds=n_folds, sample_ids=sample_ids,
+                          class_labels=class_labels)
     fold_df = cv_results.get("fold_df")
-    
+
     # Final fit with optimal parameter
     if manual_param is not None:
-        #print(f"Manual-selected {param_name}: {manual_param}")
         final_param = manual_param
     else:
         final_param = cv_results['optimal_param']
-        #print(f"Auto-selected {param_name}: {final_param}")
 
     # Fit model
     model.set_params(**{param_name: final_param})
@@ -100,7 +107,7 @@ def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None,
     final_r2_CV = cv_results['pooled_r2_CV'][param_range.index(cv_results['optimal_param'])]
     final_rmse_CV = cv_results['pooled_rmse_CV'][param_range.index(cv_results['optimal_param'])]
 
-    # Print summary
+    # Save CV summary CSV and print console summary
     print_CV_table(
         param_name=param_name,
         param_range=param_range,
@@ -111,17 +118,17 @@ def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None,
         model_name="PLS",
         analyte=analyte,
         directory=directory
-        )
-    
+    )
+
     cv_table_df = pd.DataFrame({
-    param_name: param_range,
-    "R²_Cal": cv_results['mean_r2_cal'],
-    "R²_CV": cv_results['pooled_r2_CV'],
-    "RMSE_CV": cv_results['pooled_rmse_CV'],
-    "RMSE_Cal": cv_results['mean_rmse_cal']
+        param_name: param_range,
+        "R²_Cal": cv_results['mean_r2_cal'],
+        "R²_CV": cv_results['pooled_r2_CV'],
+        "RMSE_CV": cv_results['pooled_rmse_CV'],
+        "RMSE_Cal": cv_results['mean_rmse_cal']
     })
-    
-    summary_string=print_model_summary(
+
+    summary_string = print_model_summary(
         model_name="PLS",
         analyte=analyte,
         final_r2=final_r2,
@@ -132,29 +139,6 @@ def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None,
         param_name=param_name
     )
 
-    # Plots
-    plot_t2_q_residuals(model, x, y, analyte, directory, model_name="PLS", sample_ids=sample_ids)
-    plot_pred_vs_actual(
-        y,
-        Y_pred + cv_results['y_mean'],
-        directory,
-        f"Final Predicted vs. Actual for {analyte} (PLS)",
-        f"Final_Pred_vs_Actual_PLS_{analyte}.png",
-        class_labels=class_labels
-    )
-    plot_coefficients(axis, model.coef_, directory, "PLS", analyte)
-    plot_vip_scores(model, x, axis, directory, "PLS", analyte)
-    
-    # Only plot LV1 vs LV2 if there are at least 2 components
-    scoreplot_path = None
-    if final_param >= 2:
-        scoreplot_path = plot_pls_scores(
-            model=model,
-            x=x,
-            directory=directory,
-            analyte=analyte,
-            class_labels=class_labels
-        )
     return {
         'model': model,
         'final_r2': final_r2,
@@ -169,15 +153,103 @@ def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None,
         'coef_plot_path': os.path.join(directory, f"PLS_Coefficients_{analyte}.png"),
         't2_plot_path': os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"),
         'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_PLS_{analyte}.png"),
-        "fold_df": fold_df,
-        'scoreplot_path': scoreplot_path,
-            
+        'fold_df': fold_df,
+        'scoreplot_path': None,       # populated by plot_pls_results()
+        # extras consumed by the reporting layer
+        'param_name': param_name,
+        'param_range': param_range,
     }
 
-def MLPRegressor_model(x, y, directory, axis, analyte="", 
-                       param_grid=None, groups=None, 
-                       random_state=42, n_folds=8, sample_ids=None, class_labels=None):
-    
+
+def plot_pls_results(results, x, y, axis, directory, analyte,
+                     sample_ids=None, class_labels=None):
+    """
+    Reporting layer for PLS. Generates all diagnostic plots from a _pls_compute()
+    result dict.  Call this after _pls_compute() when plots are needed.
+
+    Returns the scoreplot_path string (or None if n_components < 2).
+    """
+    model      = results['model']
+    cv_results = results['cv_results']
+    param_name = results['param_name']
+    param_range = results['param_range']
+    final_param = cv_results['optimal_param']
+    y_mean      = cv_results['y_mean']
+
+    # CV performance curves (moved here from KFold_CV)
+    plot_cv_performance(
+        param_range,
+        cv_results['pooled_r2_CV'],
+        cv_results['mean_r2_cal'],
+        cv_results['pooled_rmse_CV'],
+        cv_results['mean_rmse_cal'],
+        param_name, analyte, "PLS", directory
+    )
+
+    # CV predicted vs actual (moved here from KFold_CV)
+    plot_pred_vs_actual(
+        y,
+        cv_results['Y_pred_CV'] + y_mean,
+        directory,
+        f'CV Predicted vs. Actual for {analyte} (PLS)',
+        f'CV_Pred_vs_Actual_PLS_{analyte}.png',
+        class_labels=class_labels
+    )
+
+    # Final model diagnostics
+    plot_t2_q_residuals(model, x, y, analyte, directory, model_name="PLS", sample_ids=sample_ids)
+
+    Y_pred = model.predict(x)
+    plot_pred_vs_actual(
+        y,
+        Y_pred + y_mean,
+        directory,
+        f"Final Predicted vs. Actual for {analyte} (PLS)",
+        f"Final_Pred_vs_Actual_PLS_{analyte}.png",
+        class_labels=class_labels
+    )
+
+    plot_coefficients(axis, model.coef_, directory, "PLS", analyte)
+    plot_vip_scores(model, x, axis, directory, "PLS", analyte)
+
+    scoreplot_path = None
+    if final_param >= 2:
+        scoreplot_path = plot_pls_scores(
+            model=model,
+            x=x,
+            directory=directory,
+            analyte=analyte,
+            class_labels=class_labels
+        )
+
+    return scoreplot_path
+
+
+def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None,
+              manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
+    """
+    Public API for PLS regression. Signature and return dict are unchanged.
+    Internally delegates to _pls_compute() (pure computation) and
+    plot_pls_results() (all diagnostic plots).
+    """
+    results = _pls_compute(x, y, directory, axis, max_lv, analyte, groups,
+                           manual_param, sample_ids, n_folds, class_labels)
+    scoreplot_path = plot_pls_results(results, x, y, axis, directory, analyte,
+                                      sample_ids=sample_ids, class_labels=class_labels)
+    results['scoreplot_path'] = scoreplot_path
+    return results
+
+def _mlp_compute(x, y, directory, axis, analyte="",
+                 param_grid=None, groups=None,
+                 random_state=42, n_folds=8, sample_ids=None, class_labels=None):
+    """
+    Pure computation layer for MLP regression.
+    Runs grid-search cross-validation, selects the best model, and computes all
+    metrics. No plots are generated. Use plot_mlp_results() for diagnostics.
+
+    Returns a result dict with identical keys to MLPRegressor_model(), plus
+    'Y_pred_CV' inside the nested cv_results sub-dict (needed by reporting layer).
+    """
     y = np.array(y).ravel()
 
     if param_grid is None:
@@ -190,7 +262,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
             'mlp__early_stopping': [True],
             'mlp__solver': ['adam']
         }
-        
+
     base_mlp = MLPRegressor(
         max_iter=2000,
         random_state=random_state,
@@ -200,9 +272,9 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         batch_size='auto'
     )
 
-    # Pipeline: StandardScaler -> MLP
+    # Pipeline: PLSFeaturizer -> StandardScaler -> MLP
     pipeline = Pipeline([
-        ('pls', PLSFeaturizer(scale=False)),  # ← use wrapper, not PLSRegression directly
+        ('pls', PLSFeaturizer(scale=False)),
         ('scaler', StandardScaler()),
         ('mlp', base_mlp)
     ])
@@ -222,7 +294,7 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         class_labels=class_labels
     )
     fold_df = cv_results.get("fold_df")
-    
+
     final_model = cv_results['best_estimator']
     Y_pred = final_model.predict(x) + cv_results['y_mean']
 
@@ -231,30 +303,71 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
 
     Y_pred_CV = cv_results['Y_pred_CV'] + cv_results['y_mean']
     final_r2_CV = r2_score(y, Y_pred_CV)
-    final_mse_CV = mean_squared_error(y, Y_pred_CV)
     mse_CV = mean_squared_error(y, Y_pred_CV)
     rmse_CV = np.sqrt(mse_CV)
 
-    summary_string=print_model_summary(
+    summary_string = print_model_summary(
         model_name="MLP",
         analyte=analyte,
         final_r2=final_r2,
         final_r2_CV=final_r2_CV,
         final_mse=final_mse,
-        final_rmse_CV= rmse_CV,
+        final_rmse_CV=rmse_CV,
         best_params=cv_results['best_params']
-        )
-    
-    plot_feature_importance(
-    model=final_model,
-    x=x,
-    y=y,
-    axis=axis,
-    directory=directory,
-    model_name="MLP",
-    analyte=analyte
     )
-    
+
+    return {
+        'model': final_model,
+        'final_r2': final_r2,
+        'final_mse': final_mse,
+        'cv_results': {
+            'cv_results': cv_results['cv_results'],
+            'best_params': cv_results['best_params'],
+            'y_mean': cv_results['y_mean'],
+            'Y_pred_CV': Y_pred_CV,   # needed by plot_mlp_results()
+        },
+        'best_params': cv_results['best_params'],
+        'cv_pred_plot_path': cv_results['cv_pred_plot_path'],
+        'cv_table_df': cv_results['cv_table_df'],
+        'summary': summary_string,
+        'feature_importance_path': os.path.join(directory, f"Feature_Importance_MLP_{analyte}.png"),
+        'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_MLP_{analyte}.png"),
+        'fold_df': fold_df,
+    }
+
+
+def plot_mlp_results(results, x, y, axis, directory, analyte,
+                     sample_ids=None, class_labels=None):
+    """
+    Reporting layer for MLP. Generates all diagnostic plots from a _mlp_compute()
+    result dict. Call this after _mlp_compute() when plots are needed.
+    """
+    final_model = results['model']
+    y_mean      = results['cv_results']['y_mean']
+    Y_pred_CV   = results['cv_results']['Y_pred_CV']
+
+    # CV predicted vs actual (moved here from KFold_Gridsearch_CV)
+    plot_pred_vs_actual(
+        y,
+        Y_pred_CV,
+        directory,
+        f'CV Predicted vs. Actual for {analyte} (MLP)',
+        f'CV_Pred_vs_Actual_MLP_{analyte}.png',
+        class_labels=class_labels
+    )
+
+    # Final model diagnostics
+    plot_feature_importance(
+        model=final_model,
+        x=x,
+        y=y,
+        axis=axis,
+        directory=directory,
+        model_name="MLP",
+        analyte=analyte
+    )
+
+    Y_pred = final_model.predict(x) + y_mean
     plot_pred_vs_actual(
         y,
         Y_pred,
@@ -264,23 +377,20 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
         class_labels=class_labels
     )
 
-    return {
-        'model': final_model,
-        'final_r2': final_r2,
-        'final_mse': final_mse,
-        'cv_results': {
-        'cv_results': cv_results['cv_results'],
-        'best_params': cv_results['best_params'],
-        'y_mean': cv_results['y_mean']  
-        },
-        'best_params': cv_results['best_params'],
-        'cv_pred_plot_path': cv_results['cv_pred_plot_path'],
-        'cv_table_df': cv_results['cv_table_df'],
-        'summary': summary_string,
-        'feature_importance_path': os.path.join(directory, f"Feature_Importance_MLP_{analyte}.png"),
-        'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_MLP_{analyte}.png"),
-        "fold_df": fold_df
-    }
+
+def MLPRegressor_model(x, y, directory, axis, analyte="",
+                       param_grid=None, groups=None,
+                       random_state=42, n_folds=8, sample_ids=None, class_labels=None):
+    """
+    Public API for MLP regression. Signature and return dict are unchanged.
+    Internally delegates to _mlp_compute() (pure computation) and
+    plot_mlp_results() (all diagnostic plots).
+    """
+    results = _mlp_compute(x, y, directory, axis, analyte, param_grid, groups,
+                           random_state, n_folds, sample_ids, class_labels)
+    plot_mlp_results(results, x, np.array(y).ravel(), axis, directory, analyte,
+                     sample_ids=sample_ids, class_labels=class_labels)
+    return results
 
 
 """

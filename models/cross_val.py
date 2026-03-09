@@ -9,7 +9,6 @@ import numpy as np
 from sklearn.model_selection import KFold, GroupKFold, cross_val_score, cross_val_predict
 from sklearn.metrics import mean_squared_error, root_mean_squared_error, r2_score, make_scorer
 from sklearn.model_selection import GridSearchCV
-from plotting.plot_regression import plot_cv_performance, plot_pred_vs_actual
 import pandas as pd
 import os
 
@@ -136,22 +135,6 @@ def KFold_CV(x, y, model, param_name,
     cv_r2_plot_path = os.path.join(directory, f'CV_R2_{model_name}_{analyte}.png')
     cv_rmse_plot_path = os.path.join(directory, f'CV_RMSE_{model_name}_{analyte}.png')
     cv_pred_path = os.path.join(directory, f'CV_Pred_vs_Actual_{model_name}_{analyte}.png')
-
-    # Plotting
-    if directory:
-        plot_cv_performance(
-            param_range, pooled_r2_CV, mean_r2_cal,
-            pooled_rmse_CV, mean_rmse_cal,
-            param_name, analyte, model_name, directory
-        )
-        plot_pred_vs_actual(
-            y,
-            Y_pred_CV + y_mean,
-            directory,
-            f'CV Predicted vs. Actual for {analyte} ({model_name})',
-            f'CV_Pred_vs_Actual_{model_name}_{analyte}.png',
-            class_labels=class_labels
-        )
 
     return {
       'mean_r2_CV': mean_r2_CV,
@@ -603,18 +586,6 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
         cv_df.to_csv(out_file, index=False)
         cv_table_df = cv_df.sort_values(by="mean_test_score", ascending=False)  # Optional sort
 
-
-        # Plot CV predicted vs actual
-        if task == 'regression':
-            Y_plot = Y_pred_CV + y_mean
-            plot_pred_vs_actual(
-                y,
-                Y_plot,
-                directory,
-                f'CV Predicted vs. Actual for {analyte} ({model_name})',
-                f'CV_Pred_vs_Actual_{model_name}_{analyte}.png',
-                class_labels=class_labels 
-                )
 
     return {
         'best_params': grid_search.best_params_,
