@@ -74,4 +74,4 @@ def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
 
     os.makedirs(directory, exist_ok=True)
     plt.savefig(os.path.join(directory, "PCA_Loadings_Annotated.png"), dpi=300, bbox_inches="tight")
-    plt.show()
+    plt.close()
