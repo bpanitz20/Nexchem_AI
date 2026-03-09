@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Nexchem_AI — Architecture Diagram</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      padding: 32px;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #f0f4ff;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: #64748b;
+      margin-bottom: 36px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid #1e2535;
+      padding-bottom: 0;
+    }
+
+    .tab {
+      padding: 8px 18px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #64748b;
+      border: 1px solid transparent;
+      border-bottom: none;
+      background: transparent;
+      transition: all 0.15s;
+      position: relative;
+      bottom: -1px;
+    }
+
+    .tab:hover { color: #94a3b8; }
+
+    .tab.active {
+      background: #1a2035;
+      color: #93c5fd;
+      border-color: #1e2535;
+      border-bottom-color: #1a2035;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .card {
+      background: #1a2035;
+      border: 1px solid #1e2535;
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 24px;
+    }
+
+    .card h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #475569;
+      margin-bottom: 20px;
+    }
+
+    /* Mermaid overrides for dark theme */
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: #94a3b8;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* Dependency matrix table */
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    .matrix th {
+      background: #0f1117;
+      color: #64748b;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid #1e2535;
+    }
+
+    .matrix td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #1e2535;
+      color: #cbd5e1;
+      vertical-align: top;
+    }
+
+    .matrix tr:last-child td { border-bottom: none; }
+    .matrix tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .matrix td:first-child {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.78rem;
+      color: #93c5fd;
+      white-space: nowrap;
+    }
+
+    .tag {
+      display: inline-block;
+      background: #0f2744;
+      color: #7dd3fc;
+      border: 1px solid #1e4070;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.72rem;
+      margin: 2px 2px 2px 0;
+    }
+
+    .tag.green  { background: #052e16; color: #86efac; border-color: #166534; }
+    .tag.purple { background: #2e1065; color: #c4b5fd; border-color: #5b21b6; }
+    .tag.orange { background: #431407; color: #fdba74; border-color: #9a3412; }
+    .tag.gray   { background: #1e2535; color: #64748b; border-color: #334155; }
+
+    .note {
+      background: #0f1a30;
+      border-left: 3px solid #3b82f6;
+      border-radius: 0 6px 6px 0;
+      padding: 12px 16px;
+      font-size: 0.82rem;
+      color: #94a3b8;
+      margin-top: 20px;
+      line-height: 1.6;
+    }
+
+    .note strong { color: #93c5fd; }
+  </style>
+</head>
+<body>
+
+  <h1>Nexchem_AI — Architecture Diagram</h1>
+  <p class="subtitle">Function-level dependency map across loaders, preprocessors, models, plotting, and the Streamlit app</p>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('overview')">Module Overview</div>
+    <div class="tab" onclick="showTab('callgraph')">Call Graph</div>
+    <div class="tab" onclick="showTab('streamlit')">Streamlit App</div>
+    <div class="tab" onclick="showTab('matrix')">Dependency Matrix</div>
+  </div>
+
+  <!-- TAB 1: Module Overview -->
+  <div id="tab-overview" class="panel active">
+    <div class="card">
+      <h2>Data flow — end to end</h2>
+      <div class="mermaid">
+flowchart TD
+    classDef entry   fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
+    classDef loader  fill:#1a3a2a,stroke:#22c55e,color:#bbf7d0
+    classDef preproc fill:#3b2a1a,stroke:#f97316,color:#fed7aa
+    classDef model   fill:#2a1a3a,stroke:#a855f7,color:#e9d5ff
+    classDef plot    fill:#1a1a3a,stroke:#6366f1,color:#c7d2fe
+    classDef data    fill:#1a2a2a,stroke:#14b8a6,color:#99f6e4
+
+    SPC[(".spc files\n(Raman spectra)")]:::data
+    XLSX[("Y-block .xlsx\n(GC-MS / fatty acids)")]:::data
+
+    subgraph ENTRY["Entry Points"]
+        MAIN["main.py\nscript"]:::entry
+        ST["streamlit_app.py\nGUI"]:::entry
+    end
+
+    subgraph LOADERS["loaders/raman_loader.py"]
+        LR["load_raman()\n→ dict[sample, list[Spectrum]]"]:::loader
+    end
+
+    subgraph PREPROC["preprocessors/"]
+        PP2["group_preprocess_2()\nCrop → SavGol deriv → SNV\n→ global mean-center → avg"]:::preproc
+        PP1["preprocess_pipeline_1()\nCrop → SavGol → EMSC → MC"]:::preproc
+        ASLS["preprocess_pipeline_AsLS_SNV()\nCrop → AsLS → SavGol → SNV"]:::preproc
+        NONE["preprocess_none()\nCrop only"]:::preproc
+        AVG["avg_y_block()\nAverage Y by group ID"]:::preproc
+        ALIGN["align_group_xy()\nMatch X↔Y by sample ID"]:::preproc
+    end
+
+    subgraph MODELS["models/"]
+        RRL["run_regression_loop()"]:::model
+        PLS["PLS_model()"]:::model
+        MLP["MLPRegressor_model()"]:::model
+        EVAL["evaluate_on_prediction_set()"]:::model
+        PCA["PCA_model()"]:::model
+    end
+
+    subgraph PLOT["plotting/"]
+        PR["plot_regression.py\nplot_pred_vs_actual · plot_cv_performance\nplot_vip_scores · plot_t2_q_residuals\nplot_pls_scores · plot_coefficients"]:::plot
+        PC["plot_classifier.py\nplot_confusion_matrix\nplot_roc_curve"]:::plot
+        PRAW["plot_raw.py\nplot_spectra_colored_by_analyte"]:::plot
+    end
+
+    OUT[["results_dir/\nPNG · PDF · CSV outputs"]]:::data
+
+    SPC --> LR
+    XLSX --> AVG
+    ENTRY --> LR
+    LR --> PP2
+    LR --> PP1
+    LR --> ASLS
+    LR --> NONE
+    PP2 --> ALIGN
+    AVG --> ALIGN
+    ALIGN --> RRL
+    RRL --> PLS
+    RRL --> MLP
+    PLS --> PR
+    MLP --> PR
+    MLP --> PR
+    PLS --> EVAL
+    MLP --> EVAL
+    EVAL --> PR
+    PCA --> PR
+    PLS --> PC
+    PR --> OUT
+    PC --> OUT
+    PRAW --> OUT
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#1e3a5f;border:1px solid #3b82f6"></div>Entry points</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1a3a2a;border:1px solid #22c55e"></div>Loaders</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#3b2a1a;border:1px solid #f97316"></div>Preprocessors</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#2a1a3a;border:1px solid #a855f7"></div>Models</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1a1a3a;border:1px solid #6366f1"></div>Plotting (output sink)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1a2a2a;border:1px solid #14b8a6"></div>Data / files</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: Call Graph -->
+  <div id="tab-callgraph" class="panel">
+    <div class="card">
+      <h2>Function-level call graph — models layer</h2>
+      <div class="mermaid">
+flowchart LR
+    classDef loop    fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
+    classDef wrap    fill:#2a1a3a,stroke:#a855f7,color:#e9d5ff
+    classDef cv      fill:#1a2a1a,stroke:#22c55e,color:#bbf7d0
+    classDef plotr   fill:#1a1a3a,stroke:#6366f1,color:#c7d2fe
+    classDef plotc   fill:#2a1a1a,stroke:#ef4444,color:#fecaca
+    classDef preproc fill:#3b2a1a,stroke:#f97316,color:#fed7aa
+    classDef eval    fill:#1a2a2a,stroke:#14b8a6,color:#99f6e4
+
+    RRL["run_regression_loop()"]:::loop
+    RCL["run_classification_loop()"]:::loop
+
+    PLS["PLS_model()"]:::wrap
+    MLPR["MLPRegressor_model()"]:::wrap
+    MLPC["MLPClassifier_model()"]:::wrap
+    PCA["PCA_model()"]:::wrap
+
+    KCV["KFold_CV()"]:::cv
+    KGS["KFold_Gridsearch_CV()"]:::cv
+
+    EVAL["evaluate_on_prediction_set()"]:::eval
+
+    BIN["bin_targets()"]:::preproc
+
+    PVA["plot_pred_vs_actual()"]:::plotr
+    PCP["plot_cv_performance()"]:::plotr
+    PCO["plot_coefficients()"]:::plotr
+    PVS["plot_vip_scores()"]:::plotr
+    PT2["plot_t2_q_residuals()"]:::plotr
+    PSC["plot_pls_scores()"]:::plotr
+    PFI["plot_feature_importance()"]:::plotr
+    PCVT["print_CV_table()"]:::plotr
+    PMS["print_model_summary()"]:::plotr
+
+    PCF["plot_confusion_matrix()"]:::plotc
+    PRC["plot_roc_curve()"]:::plotc
+    PDB["plot_decision_boundary()"]:::plotc
+
+    RRL --> PLS
+    RRL --> MLPR
+    RCL --> BIN
+    RCL --> MLPC
+
+    PLS --> KCV
+    MLPR --> KGS
+    MLPC --> KGS
+
+    KCV --> PCP
+    KCV --> PVA
+    KGS --> PVA
+
+    PLS --> PVA
+    PLS --> PCO
+    PLS --> PVS
+    PLS --> PT2
+    PLS --> PSC
+    PLS --> PCVT
+    PLS --> PMS
+
+    MLPR --> PFI
+    MLPR --> PVA
+    MLPR --> PMS
+
+    MLPC --> PCF
+    MLPC --> PRC
+    MLPC --> PDB
+
+    EVAL --> PVA
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Preprocessing call graph</h2>
+      <div class="mermaid">
+flowchart TD
+    classDef entry   fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
+    classDef loader  fill:#1a3a2a,stroke:#22c55e,color:#bbf7d0
+    classDef preproc fill:#3b2a1a,stroke:#f97316,color:#fed7aa
+    classDef helper  fill:#2a2a1a,stroke:#eab308,color:#fef08a
+
+    MAIN["main.py / streamlit_app.py"]:::entry
+
+    LR["load_raman()\n→ {sample: [Spectrum]}"]:::loader
+    SEL["select_directory()\nselect_file()"]:::loader
+
+    GP2["group_preprocess_2()\nuse_state / return_state"]:::preproc
+    PP2["preprocess_pipeline_2()"]:::preproc
+    PP1["preprocess_pipeline_1()"]:::preproc
+    ASLS["preprocess_pipeline_AsLS_SNV()"]:::preproc
+    NONE["preprocess_none()"]:::preproc
+
+    SNV["snv_normalization()"]:::helper
+    MC["mean_center()"]:::helper
+    AVG["avg_y_block()"]:::helper
+
+    ALIGN_G["align_group_xy()"]:::preproc
+    ALIGN_S["align_xy()"]:::preproc
+
+    BIN["bin_targets()\nlabeling.py"]:::preproc
+
+    MAIN --> SEL
+    MAIN --> LR
+    LR --> GP2
+    LR --> PP2
+    LR --> PP1
+    LR --> ASLS
+    LR --> NONE
+
+    GP2 --> SNV
+    PP2 --> SNV
+    PP2 --> MC
+    PP1 --> MC
+
+    GP2 --> ALIGN_G
+    PP2 --> ALIGN_S
+    AVG --> ALIGN_G
+
+    MAIN --> AVG
+    MAIN --> BIN
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: Streamlit App -->
+  <div id="tab-streamlit" class="panel">
+    <div class="card">
+      <h2>Streamlit app — tab by tab imports</h2>
+      <div class="mermaid">
+flowchart TD
+    classDef tab     fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
+    classDef loader  fill:#1a3a2a,stroke:#22c55e,color:#bbf7d0
+    classDef preproc fill:#3b2a1a,stroke:#f97316,color:#fed7aa
+    classDef model   fill:#2a1a3a,stroke:#a855f7,color:#e9d5ff
+    classDef plot    fill:#1a1a3a,stroke:#6366f1,color:#c7d2fe
+
+    HOME["🏠 Home\ntab"]:::tab
+    DL["📂 Data Loading\ntab"]:::tab
+    PP["⚙️ Preprocessing\ntab"]:::tab
+    MOD["🧠 Modeling\ntab"]:::tab
+    PRED["🔮 Prediction\ntab"]:::tab
+    PCA["📊 PCA\ntab"]:::tab
+
+    LR["load_raman()"]:::loader
+
+    GP2["group_preprocess_2()"]:::preproc
+    PP1["preprocess_pipeline_1()"]:::preproc
+    PP2["preprocess_pipeline_2()"]:::preproc
+    ASLS["preprocess_pipeline_AsLS_SNV()"]:::preproc
+    NONE_P["preprocess_none()"]:::preproc
+    GP1["group_preprocess()"]:::preproc
+    AVG["avg_y_block()"]:::preproc
+    AXY["align_xy()"]:::preproc
+    AGXY["align_group_xy()"]:::preproc
+
+    RRL["run_regression_loop()"]:::model
+    EVAL["evaluate_on_prediction_set()"]:::model
+    PCAM["PCA_model()"]:::model
+
+    PRAW["plot_spectra_colored_by_analyte()"]:::plot
+
+    HOME --> |"instructions only"| HOME
+    DL --> LR
+    PP --> GP2
+    PP --> PP1
+    PP --> PP2
+    PP --> ASLS
+    PP --> NONE_P
+    PP --> GP1
+    PP --> AVG
+    PP --> AXY
+    PP --> AGXY
+    PP --> PRAW
+    MOD --> RRL
+    PRED --> GP2
+    PRED --> AGXY
+    PRED --> EVAL
+    PCA --> PCAM
+    PCA --> AGXY
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: Dependency Matrix -->
+  <div id="tab-matrix" class="panel">
+    <div class="card">
+      <h2>Import dependency matrix</h2>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>loaders/</th>
+            <th>preprocessors/</th>
+            <th>models/</th>
+            <th>plotting/</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>main.py</td>
+            <td><span class="tag green">raman_loader</span></td>
+            <td><span class="tag orange">raman_preprocess</span> <span class="tag orange">aligner</span></td>
+            <td><span class="tag purple">run_loops</span> <span class="tag purple">prediction_eval</span></td>
+            <td><span class="tag gray">—</span></td>
+          </tr>
+          <tr>
+            <td>streamlit_app.py</td>
+            <td><span class="tag green">raman_loader</span></td>
+            <td><span class="tag orange">raman_preprocess</span> <span class="tag orange">aligner</span></td>
+            <td><span class="tag purple">run_loops</span> <span class="tag purple">wrappers</span> <span class="tag purple">prediction_eval</span></td>
+            <td><span class="tag">plot_raw</span></td>
+          </tr>
+          <tr>
+            <td>models/run_loops.py</td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag orange">labeling</span></td>
+            <td><span class="tag purple">wrappers</span></td>
+            <td><span class="tag gray">—</span></td>
+          </tr>
+          <tr>
+            <td>models/wrappers.py</td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag purple">cross_val</span></td>
+            <td><span class="tag">plot_regression</span> <span class="tag">plot_classifier</span></td>
+          </tr>
+          <tr>
+            <td>models/cross_val.py</td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag">plot_regression</span></td>
+          </tr>
+          <tr>
+            <td>models/prediction_eval.py</td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag">plot_regression</span></td>
+          </tr>
+          <tr>
+            <td>plotting/plot_regression.py</td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">— (sink)</span></td>
+          </tr>
+          <tr>
+            <td>plotting/plot_classifier.py</td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">—</span></td>
+            <td><span class="tag gray">— (sink)</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <strong>Key structural observations:</strong><br><br>
+        • <strong>plotting/ is a pure output sink</strong> — no plotting module imports from any other project module. Data flows in one direction only.<br><br>
+        • <strong>models/wrappers.py is the central hub</strong> — the only file that imports from both <code>cross_val</code> and <code>plotting</code>.<br><br>
+        • <strong>cross_val.py is stateless w.r.t. models</strong> — it only uses sklearn and delegates all output to plotting.<br><br>
+        • <strong>streamlit_app.py is the widest importer</strong> — it reaches all four module packages directly, including bypassing <code>run_loops</code> to call <code>wrappers.py</code> functions directly for PCA.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        background: '#1a2035',
+        primaryColor: '#1e3a5f',
+        primaryTextColor: '#bfdbfe',
+        primaryBorderColor: '#3b82f6',
+        lineColor: '#475569',
+        secondaryColor: '#1a3a2a',
+        tertiaryColor: '#2a1a3a',
+        edgeLabelBackground: '#1a2035',
+        clusterBkg: '#0f1117',
+        clusterBorder: '#1e2535',
+        titleColor: '#94a3b8',
+        nodeTextColor: '#e2e8f0',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: '13px'
+      },
+      flowchart: {
+        curve: 'basis',
+        padding: 20,
+        nodeSpacing: 50,
+        rankSpacing: 60,
+        htmlLabels: true
+      }
+    });
+
+    function showTab(name) {
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      event.target.classList.add('active');
+    }
+  </script>
+</body>
+</html>
