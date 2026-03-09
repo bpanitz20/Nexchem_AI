@@ -436,6 +436,9 @@ if tab == "Preprocessing":
             st.session_state["preprocessed_spectra"] = preprocessed_spectra
             st.session_state["cropped_axis"] = cropped_axis
             st.session_state["preprocessing_done"] = True
+            st.session_state["trained_is_group"] = (
+                selected_method == "3. Average Replicates: Savgol-SNV-MeanCenter"
+                )
 
             st.success(f"✅ Preprocessing complete using: {selected_method}")
             st.write(f"Processed {len(preprocessed_spectra)} entries")
@@ -888,7 +891,9 @@ if tab == "Prediction":
     trained_axis     = st.session_state.get("trained_axis")
     crop_region      = st.session_state.get("trained_crop_region", (800, 1800))
     deriv_order      = st.session_state.get("trained_deriv_order", 1)
-    trained_is_group = st.session_state.get("trained_is_group", False)
+    trained_is_group = (
+    trained_key == "3. Average Replicates: Savgol-SNV-MeanCenter"
+    )
     preproc_state    = st.session_state.get("preproc_state")
 
     # (optional) AsLS / Savgol params if you decide to store them from the Preprocessing tab
