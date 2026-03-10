@@ -1,1 +1,145 @@
-# main.py# === Import your project modules ===from loaders.raman_loader import select_directory, select_file, load_ramanfrom preprocessors.raman_preprocess import preprocess_savgol_emsc_mc, preprocess_savgol_snv_mc, group_preprocess_savgol_emsc_mc, group_preprocess_savgol_snv_mc, avg_y_blockfrom preprocessors.aligner import align_xy, align_group_xyimport osimport pandas as pdfrom models.run_loops import run_regression_loop, run_classification_loopimport numpy as npfrom models.prediction_eval import evaluate_on_prediction_set# === Select and Create Directories ===print("\n📂 Select the directory containing your raw Raman .spc files:")#directory = select_directory()directory= "/Users/bp/Desktop/Seriola_Model/2023_prediction/23_Train/"spectra_dir = os.path.join(directory, "Raman_Spectra")results_dir = os.path.join(directory, "Model_Results")os.makedirs(spectra_dir, exist_ok=True)os.makedirs(results_dir, exist_ok=True)# === Load Raw Raman Spectra (X Block) ===sample_spectra, shifts, sample_groups = load_raman(directory, spectra_dir)# === Preprocess Spectra ===#preprocessed_sample_spectra, cropped_axis, preproc_state = preprocess_savgol_snv_mc(#    sample_spectra, spectra_dir, return_state=True#)preprocessed_group_spectra, cropped_axis, preproc_state = group_preprocess_savgol_snv_mc(sample_spectra, sample_groups, spectra_dir, return_state = True)# === Step 5: Load Reference Data (Y Block) ===print("\n📄 Select the reference data file:")#gcms_path = select_file()gcms_path = "/Users/bp/Desktop/Seriola_Model/2023_prediction/23Train_Python.xlsx"gcms_df = pd.read_excel(gcms_path)gcms_df.set_index('ID', inplace=True)gcms_group_df = avg_y_block(gcms_df) #use for group averaging preprocessing methods# === Align X and Y Blocks ===#filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids  = align_xy(preprocessed_sample_spectra, gcms_df)filtered_X, filtered_Y, filtered_sample_ids, classes, unmatched_ids = align_group_xy(preprocessed_group_spectra, gcms_group_df)    #use this one for replicate average spectra preprocessing -note gcms_group_df is used as y block# ===  Modeling Loops (CV and final model fitting) ===    #To use group KFold set groups=filtered_groups or classes, to choose hyperparam set manual_param,     #Set n_folds in run_loop    #choose class labels to color grouops in plots    #Use manual_param to define hyperparameter or None to auto select model_results = run_regression_loop(filtered_X, filtered_Y, results_dir, cropped_axis,                                    groups=classes, manual_param=5, n_folds=7, sample_ids=filtered_sample_ids, class_labels=classes)#run_classification_loop(filtered_X, filtered_Y, results_dir, cropped_axis, groups=filtered_groups)"""Load a separate prediction set and use final models to predict"""# === Optional: Load Prediction X and Y ===print("\n (Optional) Select directory with prediction spectra:")pred_dir = "/Users/bp/Desktop/Seriola_Model/2023_prediction/Prediction Set23/"if pred_dir:    # Load prediction Raman spectra + groups    pred_sample_spectra, _, pred_sample_groups = load_raman(pred_dir, spectra_dir)    # ---- Correct group preprocessing, reusing training mean ----    pred_group_spectra, pred_cropped_axis, _ = group_preprocess_savgol_snv_mc(        pred_sample_spectra,        pred_sample_groups,              spectra_dir,        use_state=preproc_state      )    # X_pred for prediction (group-averaged)    X_pred = np.vstack([        spec.spectral_data        for spec in pred_group_spectra.values()    ])else:    pred_group_spectra = None    X_pred = Noneprint("\n📄 (Optional) Select Y-block file for prediction set:")y_pred_df = NoneY_pred_true = Noney_pred_path = "/Users/bp/Desktop/Seriola_Model/2023_prediction/23_pred.xlsx"if y_pred_path:    y_pred_df = pd.read_excel(y_pred_path)    y_pred_df.set_index('ID', inplace=True)else:    Y_pred_true = None# === Align Prediction X and Y ===if pred_group_spectra is not None and y_pred_df is not None:    # For group processing we must average Y the same way as training:    pred_group_df = avg_y_block(y_pred_df)    filtered_X_pred, filtered_Y_pred, filtered_pred_sample_ids, pred_classes, pred_unmatched_ids = align_group_xy(        pred_group_spectra,        pred_group_df    )    Y_pred_true = filtered_Y_pred.valueselse:    filtered_X_pred = X_pred    filtered_pred_sample_ids = list(pred_group_spectra.keys()) if pred_group_spectra else []    Y_pred_true = None# === Use Final Model From CV on Prediction Set ===print("Evaluating Final Models on Prediction Set...")for analyte in model_results.keys():    result = model_results[analyte]    final_model = result["model"]    y_mean = result["cv_results"]["y_mean"]    evaluate_on_prediction_set(        model=final_model,        X_pred=filtered_X_pred,        y_mean=y_mean,        axis=cropped_axis,        analyte=analyte,        directory=results_dir,        Y_pred_true=(            Y_pred_true[:, filtered_Y.columns.get_loc(analyte)]            if Y_pred_true is not None else None        ),        model_name="PLS",        sample_ids=filtered_pred_sample_ids    )
+# main.py
+
+# === Import your project modules ===
+from loaders.raman_loader import select_directory, select_file, load_raman
+from preprocessors.raman_preprocess import preprocess_savgol_emsc_mc, preprocess_savgol_snv_mc, group_preprocess_savgol_emsc_mc, group_preprocess_savgol_snv_mc, avg_y_block
+from preprocessors.aligner import align_xy, align_group_xy
+import os
+import pandas as pd
+from models.run_loops import run_regression_loop, run_classification_loop
+import numpy as np
+from models.prediction_eval import evaluate_on_prediction_set
+
+
+# === Select and Create Directories ===
+print("\n📂 Select the directory containing your raw Raman .spc files:")
+#directory = select_directory()
+directory= "/Users/bp/Desktop/Seriola_Model/2023_prediction/23_Train/"
+
+spectra_dir = os.path.join(directory, "Raman_Spectra")
+results_dir = os.path.join(directory, "Model_Results")
+os.makedirs(spectra_dir, exist_ok=True)
+os.makedirs(results_dir, exist_ok=True)
+
+# === Load Raw Raman Spectra (X Block) ===
+sample_spectra, shifts, sample_groups = load_raman(directory, spectra_dir)
+
+# === Preprocess Spectra ===
+#preprocessed_sample_spectra, cropped_axis, preproc_state = preprocess_savgol_snv_mc(
+#    sample_spectra, spectra_dir, return_state=True
+#)
+preprocessed_group_spectra, cropped_axis, _, preproc_state = group_preprocess_savgol_snv_mc(sample_spectra, sample_groups, spectra_dir, return_state = True)
+
+# === Step 5: Load Reference Data (Y Block) ===
+print("\n📄 Select the reference data file:")
+#gcms_path = select_file()
+gcms_path = "/Users/bp/Desktop/Seriola_Model/2023_prediction/23Train_Python.xlsx"
+gcms_df = pd.read_excel(gcms_path)
+gcms_df.set_index('ID', inplace=True)
+
+gcms_group_df = avg_y_block(gcms_df) #use for group averaging preprocessing methods
+
+# === Align X and Y Blocks ===
+#filtered_X, filtered_Y, filtered_sample_ids, filtered_groups, classes, unmatched_ids  = align_xy(preprocessed_sample_spectra, gcms_df)
+filtered_X, filtered_Y, filtered_sample_ids, classes, unmatched_ids = align_group_xy(preprocessed_group_spectra, gcms_group_df)
+    #use this one for replicate average spectra preprocessing -note gcms_group_df is used as y block
+
+# ===  Modeling Loops (CV and final model fitting) ===
+    #To use group KFold set groups=filtered_groups or classes, to choose hyperparam set manual_param, 
+    #Set n_folds in run_loop
+    #choose class labels to color grouops in plots
+    #Use manual_param to define hyperparameter or None to auto select 
+model_results = run_regression_loop(filtered_X, filtered_Y, results_dir, cropped_axis,
+                                    groups=classes, manual_param=5, n_folds=7, sample_ids=filtered_sample_ids, class_labels=classes)
+
+#run_classification_loop(filtered_X, filtered_Y, results_dir, cropped_axis, groups=filtered_groups)
+
+
+
+
+
+
+"""
+Load a separate prediction set and use final models to predict
+"""
+
+
+# === Optional: Load Prediction X and Y ===
+print("\n (Optional) Select directory with prediction spectra:")
+pred_dir = "/Users/bp/Desktop/Seriola_Model/2023_prediction/Prediction Set23/"
+
+if pred_dir:
+    # Load prediction Raman spectra + groups
+    pred_sample_spectra, _, pred_sample_groups = load_raman(pred_dir, spectra_dir)
+
+    # ---- Correct group preprocessing, reusing training mean ----
+    pred_group_spectra, pred_cropped_axis, _ = group_preprocess_savgol_snv_mc(
+        pred_sample_spectra,
+        pred_sample_groups,      
+        spectra_dir,
+        use_state=preproc_state  
+    )
+
+    # X_pred for prediction (group-averaged)
+    X_pred = np.vstack([
+        spec.spectral_data
+        for spec in pred_group_spectra.values()
+    ])
+else:
+    pred_group_spectra = None
+    X_pred = None
+
+
+print("\n📄 (Optional) Select Y-block file for prediction set:")
+y_pred_df = None
+Y_pred_true = None
+y_pred_path = "/Users/bp/Desktop/Seriola_Model/2023_prediction/23_pred.xlsx"
+
+if y_pred_path:
+    y_pred_df = pd.read_excel(y_pred_path)
+    y_pred_df.set_index('ID', inplace=True)
+else:
+    Y_pred_true = None
+
+
+# === Align Prediction X and Y ===
+if pred_group_spectra is not None and y_pred_df is not None:
+
+    # For group processing we must average Y the same way as training:
+    pred_group_df = avg_y_block(y_pred_df)
+
+    filtered_X_pred, filtered_Y_pred, filtered_pred_sample_ids, pred_classes, pred_unmatched_ids = align_group_xy(
+        pred_group_spectra,
+        pred_group_df
+    )
+
+    Y_pred_true = filtered_Y_pred.values
+
+else:
+    filtered_X_pred = X_pred
+    filtered_pred_sample_ids = list(pred_group_spectra.keys()) if pred_group_spectra else []
+    Y_pred_true = None
+
+
+# === Use Final Model From CV on Prediction Set ===
+print("Evaluating Final Models on Prediction Set...")
+
+for analyte in model_results.keys():
+    result = model_results[analyte]
+    final_model = result["model"]
+    y_mean = result["cv_results"]["y_mean"]
+
+    evaluate_on_prediction_set(
+        model=final_model,
+        X_pred=filtered_X_pred,
+        y_mean=y_mean,
+        axis=cropped_axis,
+        analyte=analyte,
+        directory=results_dir,
+        Y_pred_true=(
+            Y_pred_true[:, filtered_Y.columns.get_loc(analyte)]
+            if Y_pred_true is not None else None
+        ),
+        model_name="PLS",
+        sample_ids=filtered_pred_sample_ids
+    )

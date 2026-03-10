@@ -402,21 +402,13 @@ if tab == "Preprocessing":
                     gid = sid.split("-")[0]
                     sample_groups[gid].append(sid)
 
-                # Fit state
-                _, _, preproc_state = group_preprocess_savgol_snv_mc(
+                preprocessed_spectra, cropped_axis, group_plot_dict, preproc_state = group_preprocess_savgol_snv_mc(
                     sample_spectra, sample_groups, spectra_dir,
                     crop_region=crop_region,
                     derivative_order=deriv_order,
                     return_state=True
                 )
                 st.session_state["preproc_state"] = preproc_state
-
-                # Produce averaged spectra
-                preprocessed_spectra, cropped_axis, group_plot_dict = group_preprocess_savgol_snv_mc(
-                    sample_spectra, sample_groups, spectra_dir,
-                    crop_region=crop_region,
-                    derivative_order=deriv_order
-                )
 
                 st.session_state["group_plots"] = group_plot_dict
                 st.session_state["y_block"] = avg_y_block(st.session_state["y_block"])

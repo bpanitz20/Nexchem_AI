@@ -431,7 +431,7 @@ def group_preprocess_savgol_snv_mc(sample_spectra, sample_groups, spectra_dir="G
     # === 4) Optional fitted state ===
     if return_state:
         fitted_state = {"mean_spectrum": mc_step.mean_}
-        return group_avg_spectra, cropped_axis, fitted_state
+        return group_avg_spectra, cropped_axis, group_plot_dict, fitted_state
 
     return group_avg_spectra, cropped_axis, group_plot_dict
 
