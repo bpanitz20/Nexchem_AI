@@ -1051,7 +1051,7 @@ if tab == "Prediction":
                         axis=axis,
                         analyte=analyte,
                         directory=results_dir,
-                        Y_pred_true=Y_pred_true[:, 0] if Y_pred_true is not None else None,
+                        Y_pred_true=Y_pred_true[:, filtered_Y_pred.columns.get_loc(analyte)] if Y_pred_true is not None else None,
                         model_name=model_name,
                         sample_ids=filtered_pred_sample_ids
                     )
