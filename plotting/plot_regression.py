@@ -104,7 +104,7 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
                                 best_params, optimal_param, param_name)
 
 
-"""
+
 def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels=None):
     plt.figure(figsize=(8, 6))
 
@@ -149,11 +149,11 @@ def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels
     plt.savefig(os.path.join(directory, filename), dpi=300, bbox_inches="tight")
     plt.close()
 
-"""
 
 
 
-def plot_pred_vs_actual(
+
+def plot_pred_vs_actual_paper(
     y_true,
     y_pred,
     directory,
