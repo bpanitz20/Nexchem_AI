@@ -809,53 +809,25 @@ if tab == "Modeling":
                             with col:
                                 st.image(path, caption=captions[i], use_container_width=True)    
 
-            # === Loadings / Importance Section ===
-            st.subheader("📉 Loadings & Variables")
+            # === Diagnostic Plots ===
+            st.subheader("📉 Loadings, Variables & Scores")
 
             for analyte in model_results.keys():
                 result = model_results[analyte]
+                diag_plots = result.get("diagnostic_plots", [])
+                if not diag_plots:
+                    continue
 
-                if model_name == "PLS":
-                    vip = result.get("vip_plot_path")
-                    coef = result.get("coef_plot_path")
-                    t2q = result.get("t2_plot_path")
-                    final_pred = result.get("final_pred_plot_path")
+                model_type = result.get("model_type", "")
+                st.markdown(f"**🔬 {analyte} ({model_type})**")
 
-                    st.markdown(f"**🔬 {analyte} (PLS)**")
-                    plot_paths = [t2q, final_pred, coef, vip]
-                    plot_labels = ["T² vs Q Residuals", "Final Predicted vs Actual", "Regression Coefficients", "VIP Scores"]
-
-                    rows = [st.columns(2), st.columns(2)]
-                    for i, (path, label) in enumerate(zip(plot_paths, plot_labels)):
-                        if path and os.path.exists(path):
-                            col = rows[i // 2][i % 2]
+                for i in range(0, len(diag_plots), 2):
+                    pair = diag_plots[i : i + 2]
+                    cols = st.columns(len(pair))
+                    for col, entry in zip(cols, pair):
+                        if os.path.exists(entry["path"]):
                             with col:
-                                st.image(path, caption=label, width=500)
-
-                elif model_name == "MLP":
-                    st.markdown(f"**🔬 {analyte} (MLP)**")
-                    final_pred = result.get("final_pred_plot_path")
-                    feat_imp = result.get("feature_importance_path")
-
-                    plot_paths = [final_pred, feat_imp]
-                    plot_labels = ["Final Predicted vs Actual", "Feature Importance"]
-
-                    cols = st.columns(2)
-                    for i, (path, label) in enumerate(zip(plot_paths, plot_labels)):
-                        if path and os.path.exists(path):
-                            with cols[i]:
-                                st.image(path, caption=label, use_container_width=True)
- 
-            # === PLS LV Score Plots ===
-            st.subheader("🎯 Scores")
-                  
-            for analyte in model_results.keys():
-                result = model_results[analyte]
-                scoreplot_path = result.get("scoreplot_path")
-            
-                # Display only if the plot exists
-                if scoreplot_path and os.path.exists(scoreplot_path):
-                    st.image(scoreplot_path, caption=f"LV1 vs LV2 Scores – {analyte}", width=500)
+                                st.image(entry["path"], caption=entry["caption"], width=500)
 
 
 # === TAB 4: Prediction ===

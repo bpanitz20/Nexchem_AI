@@ -239,6 +239,16 @@ def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None,
     scoreplot_path = plot_pls_results(results, x, y, axis, directory, analyte,
                                       sample_ids=sample_ids, class_labels=class_labels)
     results['scoreplot_path'] = scoreplot_path
+    results['diagnostic_plots'] = [
+        entry for entry in [
+            {"path": results.get("t2_plot_path"),         "caption": "T² vs Q Residuals"},
+            {"path": results.get("final_pred_plot_path"), "caption": "Final Predicted vs Actual"},
+            {"path": results.get("coef_plot_path"),       "caption": "Regression Coefficients"},
+            {"path": results.get("vip_plot_path"),        "caption": "VIP Scores"},
+            {"path": scoreplot_path,                      "caption": "LV1 vs LV2 Scores"},
+        ]
+        if entry["path"] is not None
+    ]
     return results
 
 def _mlp_compute(x, y, directory, axis, analyte="",
@@ -385,6 +395,13 @@ def MLPRegressor_model(x, y, directory, axis, analyte="",
                            random_state, n_folds, sample_ids, class_labels)
     plot_mlp_results(results, x, np.array(y).ravel(), axis, directory, analyte,
                      sample_ids=sample_ids, class_labels=class_labels)
+    results['diagnostic_plots'] = [
+        entry for entry in [
+            {"path": results.get("final_pred_plot_path"),    "caption": "Final Predicted vs Actual"},
+            {"path": results.get("feature_importance_path"), "caption": "Feature Importance"},
+        ]
+        if entry["path"] is not None
+    ]
     return results
 
 
