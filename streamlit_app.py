@@ -607,7 +607,7 @@ if tab == "Modeling":
                     default=[6]
                 )
                 
-                # Nodes per layer – like Eigenvector
+                # Nodes per layer 
                 nodes_first = st.multiselect(
                     "Nodes 1st layer:",
                     options=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16],
