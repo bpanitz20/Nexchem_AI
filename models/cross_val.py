@@ -183,7 +183,7 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
         cv=cv,
         scoring=scoring,
         refit=True,
-        n_jobs=-1,
+        n_jobs=1,
         return_train_score=False
     )
 
