@@ -1,55 +1,42 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Sat May  3 14:49:27 2025
-
-@author: bp
-"""
 
 import numpy as np
-from models.wrappers import (
-    PLS_model,
-    MLPRegressor_model,
-    MLPClassifier_model
-    
-)
-
+from models.wrappers import PLS_model, MLPRegressor_model, MLPClassifier_model
 from preprocessors.labeling import bin_targets
+from config import DEFAULT_MLP_PARAM_GRID
 
-"""
-def run_regression_loop(X, Y_df, results_dir, axis, groups=None, manual_param=None, sample_ids=None):
-    print("\n🚀 Starting regression model training...")
-    model_results = {}
 
-    for analyte in Y_df.columns:
-        print(f"\n🔬 Regression for: {analyte}")
-        y = Y_df[analyte].values.reshape(-1, 1)
-        model_results[analyte] = {}
+# ---------------------------------------------------------------------------
+# Model registry — add new regression models here; no other file needs to
+# change to support a new entry.
+# ---------------------------------------------------------------------------
 
-        # === Add models here ===
+def _run_pls(X, y, results_dir, axis, analyte, groups, n_folds, sample_ids,
+             class_labels, manual_param=None, param_grid=None):
+    return PLS_model(
+        X, y, results_dir, axis,
+        analyte=analyte, manual_param=manual_param,
+        groups=groups, n_folds=n_folds,
+        sample_ids=sample_ids, class_labels=class_labels
+    )
 
-        # PLS
-        pls_result = PLS_model(
-            X, y, results_dir, axis,
-            analyte=analyte,
-            groups=groups,
-            manual_param=manual_param,
-            sample_ids=sample_ids
-        )
-        model_results[analyte]["PLS"] = pls_result
 
-        # MLP
-        mlp_result = MLPRegressor_model(
-            X, y, results_dir, axis,
-            analyte=analyte,
-            groups=groups
-        )
-        model_results[analyte]["MLP"] = mlp_result
+def _run_mlp(X, y, results_dir, axis, analyte, groups, n_folds, sample_ids,
+             class_labels, manual_param=None, param_grid=None):
+    return MLPRegressor_model(
+        x=X, y=y, directory=results_dir, axis=axis,
+        analyte=analyte, param_grid=param_grid,
+        groups=groups, n_folds=n_folds,
+        sample_ids=sample_ids, class_labels=class_labels
+    )
 
-        # You can add more models here later (e.g., SVR, RF, Ridge)
 
-    return model_results
-"""
+MODEL_REGISTRY = {
+    "PLS": _run_pls,
+    "MLP": _run_mlp,
+}
+
 
 def run_regression_loop(
     X,
@@ -67,111 +54,71 @@ def run_regression_loop(
     class_labels=None
 ):
     """
-    Runs a regression loop across all analytes in Y_df using the specified model and CV configuration.
+    Runs a regression loop across all analytes in Y_df using the specified model.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     X : np.ndarray
-        Feature matrix.
     Y_df : pd.DataFrame
-        Target variable(s) dataframe.
     results_dir : str
-        Output directory for results and plots.
-    axis : list or np.ndarray
-        Raman shift axis for feature importance plotting.
+    axis : array-like
     model_name : str
-        Model to use ("PLS", "MLP", etc.).
-    param_name : str
-        Name of hyperparameter to tune (PLS only).
-    param_range : list
-        Range of hyperparameter values to test (PLS only).
-    manual_param : int or tuple
-        Manually specified parameter value (skips grid search).
-    use_group_kfold : bool
-        Whether to use group-aware cross-validation (MLP only).
+        Key into MODEL_REGISTRY ("PLS", "MLP", …).
+    param_grid : dict or None
+        MLP hyperparameter grid; defaults to DEFAULT_MLP_PARAM_GRID.
+    manual_param : int or None
+        Fixed n_components for PLS (skips grid search).
     n_folds : int
-        Number of CV folds.
-    groups : list or array
-        Group labels if using group-aware CV.
-    sample_ids : list
-        List of sample names (used for logging or plotting).
+    groups : array-like or None
+    sample_ids : list or None
+    class_labels : array-like or None
 
-    Returns:
-    --------
-    dict
-        Model results dictionary.
+    Returns
+    -------
+    dict  {analyte: result_dict}
     """
+    if model_name not in MODEL_REGISTRY:
+        raise ValueError(
+            f"Unsupported model: '{model_name}'. "
+            f"Available: {list(MODEL_REGISTRY)}"
+        )
 
+    if model_name == "MLP" and param_grid is None:
+        param_grid = DEFAULT_MLP_PARAM_GRID
+
+    run_fn = MODEL_REGISTRY[model_name]
     results_all = {}
 
     for analyte in Y_df.columns:
         print(f"\n🔬 Regression for: {analyte}")
         y = Y_df[analyte].values.reshape(-1, 1)
-
-        if model_name == "PLS":
-            model_results = PLS_model(
-                X, y, results_dir, axis,
-                analyte=analyte,
-                manual_param=manual_param,
-                groups=groups, n_folds=n_folds,
-                sample_ids=sample_ids, class_labels=class_labels
-            )
-
-        elif model_name == "MLP":
-            if param_grid is None:
-                param_grid = {
-                        'pls__n_components': [4, 5, 6],
-                        'mlp__hidden_layer_sizes': [(50,), (100,), (50, 50)],
-                        'mlp__activation': ['relu'],
-                        'mlp__alpha': [0.02, 0.01, 0.0009],
-                        'mlp__learning_rate_init': np.linspace(0.0001, 0.01, 10).tolist(),
-                        'mlp__early_stopping': [True],
-                        'mlp__solver': ['adam']
-                    }
-            model_results = MLPRegressor_model(
-                x=X,
-                y=y,
-                directory=results_dir,
-                axis=axis,
-                analyte=analyte,
-                param_grid=param_grid,
-                groups=groups, n_folds=n_folds,
-                sample_ids=sample_ids, class_labels=class_labels
-            )
-
-        else:
-            raise ValueError(f"Unsupported model: {model_name}")
-
-        results_all[analyte] = model_results
+        results_all[analyte] = run_fn(
+            X, y, results_dir, axis, analyte, groups, n_folds,
+            sample_ids, class_labels,
+            manual_param=manual_param, param_grid=param_grid
+        )
 
     return results_all
-
 
 
 def run_classification_loop(X, Y_df, results_dir, axis, bins=[0, 0.4, 0.7, 1], groups=None):
     """
     Loop through each Y column (analyte) and run classification models.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     X : np.ndarray
-        Feature matrix
     Y_df : pd.DataFrame
-        Target table with one column per analyte
     results_dir : str
-        Directory to save model outputs
-    axis : list
-        Spectral axis for plotting
+    axis : array-like
     bins : list of float
-        Bin edges for converting continuous Y to classes
+        Bin edges for converting continuous Y to class labels.
+    groups : array-like or None
     """
     print("\n🚀 Starting classification model training...")
     for analyte in Y_df.columns:
         print(f"\n🔬 Classification for: {analyte}")
         y_continuous = Y_df[analyte].values
-        
         y_class = bin_targets(y_continuous, bins=bins)
         print("Binned class distribution:", np.unique(y_class, return_counts=True))
-
         MLPClassifier_model(X, y_class, results_dir, axis, analyte=analyte, groups=groups)
-        # Add other classifiers here (SVMClassifier_model, RFClassifier_model, etc.)

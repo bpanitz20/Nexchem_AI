@@ -93,14 +93,24 @@ def plot_roc_curve(y_true, y_proba, directory, model_name, analyte, suffix=""):
 
 def plot_decision_boundary(x, y, model, directory, model_name, analyte):
     """
-    Projects high-dimensional data to 2D using PCA and plots decision boundaries.
+    Projects high-dimensional data to 2D using PCA for visualization only,
+    then fits a separate visualization classifier in that 2D space to draw
+    the decision boundary. The passed model is never modified.
+
+    Note: the boundary shown is an approximation — it reflects how a copy of
+    the same classifier type behaves in 2D PCA space, not in the original
+    feature space. The scatter points represent the true training samples.
     """
-    # Step 1: PCA to 2D
+    from sklearn.base import clone
+
+    # Step 1: PCA to 2D for visualization only
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(x)
 
-    # Step 2: Fit model on reduced space
-    model.fit(X_pca, y)
+    # Step 2: Fit a fresh clone of the model in 2D PCA space (visualization only).
+    # The original trained model is not touched.
+    viz_model = clone(model)
+    viz_model.fit(X_pca, y)
 
     # Step 3: Create mesh grid
     h = 0.02
@@ -109,8 +119,8 @@ def plot_decision_boundary(x, y, model, directory, model_name, analyte):
     xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
                          np.arange(y_min, y_max, h))
 
-    # Step 4: Predict on mesh
-    Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+    # Step 4: Predict on mesh using the visualization clone
+    Z = viz_model.predict(np.c_[xx.ravel(), yy.ravel()])
     Z = Z.reshape(xx.shape)
 
     # Step 5: Plot
@@ -119,7 +129,7 @@ def plot_decision_boundary(x, y, model, directory, model_name, analyte):
     scatter = plt.scatter(X_pca[:, 0], X_pca[:, 1], c=y, edgecolor='k', cmap='coolwarm')
     plt.xlabel('PC1')
     plt.ylabel('PC2')
-    plt.title(f'Decision Boundary: {model_name} ({analyte})')
+    plt.title(f'Decision Boundary (2D PCA approx.): {model_name} ({analyte})')
     plt.legend(*scatter.legend_elements(), title="Class")
     plt.tight_layout()
 
