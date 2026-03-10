@@ -12,6 +12,9 @@ from scipy.signal import savgol_filter
 from ramanspy import Spectrum
 import pandas as pd
 from preprocessors.transforms import GlobalMeanCenterStep, SNVStep
+from config import (DEFAULT_CROP_REGION, DEFAULT_SAVGOL_WINDOW,
+                    DEFAULT_SAVGOL_POLYORDER, DEFAULT_DERIV_ORDER,
+                    DEFAULT_ASLS_LAMBDA, DEFAULT_ASLS_P)
 
 
 def snv_normalization(spectral_data):
@@ -108,8 +111,8 @@ def plot_preprocess_results_savgol_snv_mc(spectra_copy, spectra_dir):
     plt.close()
 
 
-def preprocess_savgol_snv_mc(sample_spectra, spectra_dir, crop_region=(800, 1800),
-                              derivative_order=1,
+def preprocess_savgol_snv_mc(sample_spectra, spectra_dir, crop_region=DEFAULT_CROP_REGION,
+                              derivative_order=DEFAULT_DERIV_ORDER,
                               return_state=False, use_state=None):
     """
     Preprocess Raman spectra with: Crop → SavGol-deriv → SNV → Global Mean-Center.
@@ -425,7 +428,8 @@ def plot_preprocess_results_group_savgol_snv_mc(grouped_temp, group_avg_spectra,
 
 
 def group_preprocess_savgol_snv_mc(sample_spectra, sample_groups, spectra_dir="Group_Preprocessed_Averages",
-                                   crop_region=(800, 1800), derivative_order=1,
+                                   crop_region=DEFAULT_CROP_REGION,
+                                   derivative_order=DEFAULT_DERIV_ORDER,
                                    return_state=False, use_state=None):
     """
     Group-level preprocessing: Crop → SavGol-deriv → SNV → Global Mean-Center → Group Average.
@@ -536,7 +540,7 @@ def plot_preprocess_results_none(spectra_copy, spectra_dir):
     plt.close()
 
 
-def preprocess_none(sample_spectra, spectra_dir, crop_region=(800, 1800)):
+def preprocess_none(sample_spectra, spectra_dir, crop_region=DEFAULT_CROP_REGION):
     """
     Crop-only preprocessor ("None"): keeps raw intensities, only trims the spectral axis.
 
@@ -639,11 +643,11 @@ def plot_preprocess_results_asls_savgol_snv(spectra_copy, spectra_dir):
 def preprocess_asls_savgol_snv(
         sample_spectra,
         spectra_dir,
-        crop_region=(800, 1800),
-        asls_lambda=1e5,
-        asls_p=0.001,
-        sg_window=13,
-        sg_polyorder=2):
+        crop_region=DEFAULT_CROP_REGION,
+        asls_lambda=DEFAULT_ASLS_LAMBDA,
+        asls_p=DEFAULT_ASLS_P,
+        sg_window=DEFAULT_SAVGOL_WINDOW,
+        sg_polyorder=DEFAULT_SAVGOL_POLYORDER):
     """
     Preprocess Raman spectra with:
         1. Crop

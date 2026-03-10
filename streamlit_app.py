@@ -28,6 +28,18 @@ from preprocessors.raman_preprocess import (
 )
 from collections import defaultdict
 from pathlib import Path
+from config import DEFAULT_CROP_REGION
+
+# ---------------------------------------------------------------------------
+# Preprocessing options — single definition shared by Preprocessing and
+# Prediction tabs.  Add new methods here; both tabs pick them up automatically.
+# ---------------------------------------------------------------------------
+PREPROCESS_OPTIONS = {
+    "1. Savgol-SNV-MeanCenter": preprocess_savgol_snv_mc,
+    "2. Baseline-Smooth-SNV": preprocess_asls_savgol_snv,
+    "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_savgol_snv_mc,
+    "4. None": preprocess_none,
+}
 
 
 def ensure_class_colors_from_y(y_df, class_col):
@@ -334,19 +346,11 @@ if tab == "Preprocessing":
 
         from ramanspy import Spectrum
 
-        # === NEW Preprocessing Menu (NO EMSC) ===
-        preprocess_options = {
-            "1. Savgol-SNV-MeanCenter": preprocess_savgol_snv_mc,
-            "2. Baseline-Smooth-SNV": preprocess_asls_savgol_snv,
-            "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_savgol_snv_mc,
-            "4. None": preprocess_none
-        }
-
-        selected_method = st.selectbox("Choose preprocessing method:", list(preprocess_options.keys()))
+        selected_method = st.selectbox("Choose preprocessing method:", list(PREPROCESS_OPTIONS.keys()))
 
         # === Common Parameters ===
-        crop_min = st.number_input("Crop region min (cm⁻¹)", value=800)
-        crop_max = st.number_input("Crop region max (cm⁻¹)", value=1800)
+        crop_min = st.number_input("Crop region min (cm⁻¹)", value=DEFAULT_CROP_REGION[0])
+        crop_max = st.number_input("Crop region max (cm⁻¹)", value=DEFAULT_CROP_REGION[1])
         crop_region = (crop_min, crop_max)
 
         # === Method-Specific parameters ===
@@ -411,7 +415,7 @@ if tab == "Preprocessing":
                 st.session_state["preproc_state"] = preproc_state
 
                 st.session_state["group_plots"] = group_plot_dict
-                st.session_state["y_block"] = avg_y_block(st.session_state["y_block"])
+                st.session_state["y_block_grouped"] = avg_y_block(st.session_state["y_block"])
                 st.session_state["sample_groups"] = sample_groups
 
             elif selected_method == "4. None":
@@ -676,12 +680,17 @@ if tab == "Modeling":
         # === Start modeling ===
         if st.button("Train Model"):
             raw_X = st.session_state["preprocessed_spectra"]
-            raw_Y = st.session_state["y_block"]
             axis = st.session_state["cropped_axis"]
             sample_groups = st.session_state.get("sample_groups")
 
             first_val = list(raw_X.values())[0]
             is_group_avg = not isinstance(first_val, list)
+
+            # Use group-averaged Y when spectra are group-averaged; never mutate "y_block"
+            if is_group_avg:
+                raw_Y = st.session_state.get("y_block_grouped", st.session_state["y_block"])
+            else:
+                raw_Y = st.session_state["y_block"]
 
             if is_group_avg:
                 filtered_X, filtered_Y, filtered_sample_ids, classes, unmatched_ids = align_group_xy(raw_X, raw_Y)
@@ -897,15 +906,7 @@ if tab == "Prediction":
     if trained_key is None:
         st.error("No trained preprocessing found. Please run the Preprocessing tab first.")
 
-    # === Must match the keys/names used in TAB 2 ===
-    preprocess_options = {
-        "1. Savgol-SNV-MeanCenter": preprocess_savgol_snv_mc,
-        "2. Baseline-Smooth-SNV": preprocess_asls_savgol_snv,
-        "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_savgol_snv_mc,
-        "4. None": preprocess_none
-    }
-
-    if trained_key in preprocess_options:
+    if trained_key in PREPROCESS_OPTIONS:
         st.info(f"Using preprocessing from training: **{trained_key}**")
     else:
         st.error(f"Unrecognized preprocessing key: {trained_key}")
@@ -936,7 +937,7 @@ if tab == "Prediction":
             else:
                 pred_sample_groups = None
 
-            pre_func = preprocess_options[trained_key]
+            pre_func = PREPROCESS_OPTIONS[trained_key]
 
             # === Apply the SAME preprocessing & params ===
             if trained_key == "1. Savgol-SNV-MeanCenter":
@@ -1041,7 +1042,7 @@ if tab == "Prediction":
                 for analyte, result in model_results.items():
                     model_obj = result["model"]
                     y_mean = result["cv_results"]["y_mean"]
-                    model_name = "PLS" if "PLS" in result.get("final_pred_plot_path", "") else "MLP"
+                    model_name = result.get("model_type", "PLS")
 
                     output = evaluate_on_prediction_set(
                         model=model_obj,
@@ -1112,12 +1113,17 @@ if tab == "PCA":
 
         # === Get Preprocessed Data ===
         raw_X = st.session_state["preprocessed_spectra"]
-        raw_Y = st.session_state["y_block"]
         axis = st.session_state["cropped_axis"]
 
         # Determine replicate structure
         first_val = list(raw_X.values())[0]
         is_group_avg = not isinstance(first_val, list)
+
+        # Use group-averaged Y when spectra are group-averaged
+        if is_group_avg:
+            raw_Y = st.session_state.get("y_block_grouped", st.session_state["y_block"])
+        else:
+            raw_Y = st.session_state["y_block"]
 
         if is_group_avg:
             filtered_X, _, _, classes, _ = align_group_xy(raw_X, raw_Y)

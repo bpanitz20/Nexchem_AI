@@ -19,6 +19,7 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.neural_network import MLPClassifier
 from models.cross_val import KFold_CV
 from models.cross_val import KFold_Gridsearch_CV
+from config import DEFAULT_MLP_PARAM_GRID
 from sklearn.metrics import accuracy_score, f1_score
 from plotting.plot_regression import (
     plot_pred_vs_actual,
@@ -140,6 +141,7 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
     )
 
     return {
+        'model_type': 'PLS',
         'model': model,
         'final_r2': final_r2,
         'final_mse': final_mse,
@@ -253,15 +255,7 @@ def _mlp_compute(x, y, directory, axis, analyte="",
     y = np.array(y).ravel()
 
     if param_grid is None:
-        param_grid = {
-            'pls__n_components': [4, 5, 6],
-            'mlp__hidden_layer_sizes': [(50,), (100,), (50, 50)],
-            'mlp__activation': ['relu'],
-            'mlp__alpha': [0.02, 0.01, 0.0009],
-            'mlp__learning_rate_init': np.linspace(0.0001, 0.01, 10).tolist(),
-            'mlp__early_stopping': [True],
-            'mlp__solver': ['adam']
-        }
+        param_grid = DEFAULT_MLP_PARAM_GRID
 
     base_mlp = MLPRegressor(
         max_iter=2000,
@@ -317,6 +311,7 @@ def _mlp_compute(x, y, directory, axis, analyte="",
     )
 
     return {
+        'model_type': 'MLP',
         'model': final_model,
         'final_r2': final_r2,
         'final_mse': final_mse,
