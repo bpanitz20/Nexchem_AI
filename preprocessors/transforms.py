@@ -28,7 +28,7 @@ class GlobalMeanCenterStep:
     transform() subtracts self.mean_ from every row of X.
 
     This replaces the ad-hoc use_state / return_state dict pattern previously
-    scattered across preprocess_pipeline_2 and group_preprocess_2.
+    scattered across preprocess_savgol_snv_mc and group_preprocess_savgol_snv_mc.
 
     Training usage
     --------------
@@ -101,3 +101,37 @@ class GlobalMeanCenterStep:
         X_mc : np.ndarray, same shape as X
         """
         return self.fit(X).transform(X)
+
+
+class SNVStep:
+    """
+    Standard Normal Variate (SNV) normalization, applied row-wise.
+
+    Stateless — fit() is a no-op that returns self.
+
+    SNV formula per spectrum:
+        x_snv = (x - mean(x)) / std(x)
+
+    X convention: 2D numpy array, shape (n_spectra, n_features).
+
+    Usage
+    -----
+        step = SNVStep()
+        X_snv = step.transform(X)          # or fit_transform — identical result
+
+    Single-spectrum usage (preserves existing call patterns)
+    ---------------------------------------------------------
+        y_snv = step.transform(y[np.newaxis, :]).squeeze(0)
+    """
+
+    def fit(self, X):
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X, dtype=float)
+        mean = X.mean(axis=1, keepdims=True)
+        std = X.std(axis=1, keepdims=True)
+        return (X - mean) / std
+
+    def fit_transform(self, X):
+        return self.transform(X)

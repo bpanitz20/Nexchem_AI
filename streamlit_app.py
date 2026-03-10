@@ -18,13 +18,13 @@ import matplotlib.pyplot as plt
 import re
 from plotting.plot_raw import plot_spectra_colored_by_analyte
 from preprocessors.raman_preprocess import (
-    preprocess_pipeline_1,
-    preprocess_pipeline_2,
-    group_preprocess,
-    group_preprocess_2,
+    preprocess_savgol_emsc_mc,
+    preprocess_savgol_snv_mc,
+    group_preprocess_savgol_emsc_mc,
+    group_preprocess_savgol_snv_mc,
     avg_y_block,
     preprocess_none,
-    preprocess_pipeline_AsLS_SNV,
+    preprocess_asls_savgol_snv,
 )
 from collections import defaultdict
 from pathlib import Path
@@ -336,9 +336,9 @@ if tab == "Preprocessing":
 
         # === NEW Preprocessing Menu (NO EMSC) ===
         preprocess_options = {
-            "1. Savgol-SNV-MeanCenter": preprocess_pipeline_2,
-            "2. Baseline-Smooth-SNV": preprocess_pipeline_AsLS_SNV,
-            "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
+            "1. Savgol-SNV-MeanCenter": preprocess_savgol_snv_mc,
+            "2. Baseline-Smooth-SNV": preprocess_asls_savgol_snv,
+            "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_savgol_snv_mc,
             "4. None": preprocess_none
         }
 
@@ -371,7 +371,7 @@ if tab == "Preprocessing":
 
             # === SELECTED PIPELINE ===
             if selected_method == "1. Savgol-SNV-MeanCenter":
-                preprocessed_spectra, cropped_axis, preproc_state = preprocess_pipeline_2(
+                preprocessed_spectra, cropped_axis, preproc_state = preprocess_savgol_snv_mc(
                     sample_spectra, spectra_dir,
                     crop_region=crop_region,
                     derivative_order=deriv_order,
@@ -380,7 +380,7 @@ if tab == "Preprocessing":
                 st.session_state["preproc_state"] = preproc_state
 
             elif selected_method == "2. Baseline-Smooth-SNV":
-                preprocessed_spectra, cropped_axis = preprocess_pipeline_AsLS_SNV(
+                preprocessed_spectra, cropped_axis = preprocess_asls_savgol_snv(
                     sample_spectra, spectra_dir,
                     crop_region=crop_region,
                     asls_lambda=asls_lambda,
@@ -403,7 +403,7 @@ if tab == "Preprocessing":
                     sample_groups[gid].append(sid)
 
                 # Fit state
-                _, _, preproc_state = group_preprocess_2(
+                _, _, preproc_state = group_preprocess_savgol_snv_mc(
                     sample_spectra, sample_groups, spectra_dir,
                     crop_region=crop_region,
                     derivative_order=deriv_order,
@@ -412,7 +412,7 @@ if tab == "Preprocessing":
                 st.session_state["preproc_state"] = preproc_state
 
                 # Produce averaged spectra
-                preprocessed_spectra, cropped_axis, group_plot_dict = group_preprocess_2(
+                preprocessed_spectra, cropped_axis, group_plot_dict = group_preprocess_savgol_snv_mc(
                     sample_spectra, sample_groups, spectra_dir,
                     crop_region=crop_region,
                     derivative_order=deriv_order
@@ -907,9 +907,9 @@ if tab == "Prediction":
 
     # === Must match the keys/names used in TAB 2 ===
     preprocess_options = {
-        "1. Savgol-SNV-MeanCenter": preprocess_pipeline_2,
-        "2. Baseline-Smooth-SNV": preprocess_pipeline_AsLS_SNV,
-        "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_2,
+        "1. Savgol-SNV-MeanCenter": preprocess_savgol_snv_mc,
+        "2. Baseline-Smooth-SNV": preprocess_asls_savgol_snv,
+        "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_savgol_snv_mc,
         "4. None": preprocess_none
     }
 

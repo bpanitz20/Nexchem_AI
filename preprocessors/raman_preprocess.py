@@ -11,7 +11,7 @@ from ramanspy.preprocessing.misc import Cropper
 from scipy.signal import savgol_filter
 from ramanspy import Spectrum
 import pandas as pd
-from preprocessors.transforms import GlobalMeanCenterStep
+from preprocessors.transforms import GlobalMeanCenterStep, SNVStep
 
 
 def snv_normalization(spectral_data):
@@ -42,11 +42,11 @@ def mean_center(X):
     mean_spectrum = np.mean(X, axis=0, keepdims=True)
     return X - mean_spectrum
 
-def preprocess_pipeline_2(sample_spectra, spectra_dir, crop_region=(800, 1800),
+def preprocess_savgol_snv_mc(sample_spectra, spectra_dir, crop_region=(800, 1800),
                           derivative_order=1,                      # ← existing
                           return_state=False, use_state=None):      # ← NEW
     """
-    Preprocess Raman spectra with: crop -> Savitzky-Golay derivative -> SNV -> (global) mean-centering.
+    Preprocess Raman spectra with: Crop → SavGol-deriv → SNV → Global Mean-Center.
     Returns:
         spectra_copy (dict): same structure as input but with processed ramanspy.Spectrum objects
         cropped_axis (array-like): spectral axis after cropping
@@ -69,6 +69,7 @@ def preprocess_pipeline_2(sample_spectra, spectra_dir, crop_region=(800, 1800),
 
     # --- 2) Per-spectrum steps: crop -> derivative -> SNV
     cropper = Cropper(region=crop_region)
+    snv_step = SNVStep()
     for sample_name, spectra in spectra_copy.items():
         processed_list = []
         for i, spectrum in enumerate(spectra):
@@ -81,7 +82,7 @@ def preprocess_pipeline_2(sample_spectra, spectra_dir, crop_region=(800, 1800),
             y_diff = savgol_filter(y, polyorder=2, window_length=13, deriv=derivative_order)
 
             # SNV (on a single spectrum)
-            y_snv = snv_normalization(y_diff[np.newaxis, :]).squeeze(0)
+            y_snv = snv_step.transform(y_diff[np.newaxis, :]).squeeze(0)
 
             # Stash (not mean-centered yet)
             row_bank.append(y_snv)
@@ -145,11 +146,12 @@ def preprocess_pipeline_2(sample_spectra, spectra_dir, crop_region=(800, 1800),
     
 
 
-def preprocess_pipeline_1(sample_spectra, spectra_dir, crop_region=(500, 1800),
+def preprocess_savgol_emsc_mc(sample_spectra, spectra_dir, crop_region=(500, 1800),
                           savgol_window=13, savgol_polyorder=2, emsc_p_order=2,
-                          emsc_asym_factor=0.1, deriv_order=1):
+                          emsc_asym_factor=0.1, deriv_order=1,
+                          return_state=False, use_state=None):
     """
-    Crop -> Savitzky-Golay -> EMSC -> GLOBAL mean-centering (across all spectra).
+    Preprocess Raman spectra with: Crop → SavGol → EMSC → Global Mean-Center.
     Returns:
         spectra_copy (dict), cropped_axis
     """
@@ -206,7 +208,12 @@ def preprocess_pipeline_1(sample_spectra, spectra_dir, crop_region=(500, 1800),
 
     # --- GLOBAL mean-centering across ALL spectra
     X = np.vstack(row_bank)           # (n_total_spectra, n_features)
-    X_mc = mean_center(X)             # <- your global mean-centering function
+    mc_step = GlobalMeanCenterStep()
+    if use_state is not None and "mean_spectrum" in use_state:
+        mc_step.mean_ = np.asarray(use_state["mean_spectrum"])
+        X_mc = mc_step.transform(X)
+    else:
+        X_mc = mc_step.fit_transform(X)
 
     # write centered data back into the Spectrum objects
     k = 0
@@ -237,18 +244,21 @@ def preprocess_pipeline_1(sample_spectra, spectra_dir, crop_region=(500, 1800),
     plt.savefig(os.path.join(spectra_dir, "Overlay_Preprocessed.png"), dpi=300, bbox_inches="tight")
     plt.close()
 
+    if return_state:
+        fitted_state = {"mean_spectrum": mc_step.mean_}
+        return spectra_copy, axis_ref, fitted_state
     return spectra_copy, axis_ref
 
 
 
 
-def group_preprocess(sample_spectra, sample_groups, spectra_dir,
-                     crop_region=(500, 1800),
-                     emsc_p_order=6, emsc_asym_factor=0.1,
-                     deriv_order=1):
+def group_preprocess_savgol_emsc_mc(sample_spectra, sample_groups, spectra_dir,
+                                    crop_region=(500, 1800),
+                                    emsc_p_order=6, emsc_asym_factor=0.1,
+                                    deriv_order=1,
+                                    return_state=False, use_state=None):
     """
-    Group-level preprocessing:
-    Crop → SavGol Derivative → EMSC → Global Mean Center → Average
+    Group-level preprocessing: Crop → SavGol-deriv → EMSC → Global Mean-Center → Group Average.
     """
 
     os.makedirs(spectra_dir, exist_ok=True)
@@ -291,9 +301,12 @@ def group_preprocess(sample_spectra, sample_groups, spectra_dir,
     emsc_corrected = pipeline.fit_transform(spectral_matrix)
 
     # === Global Mean Centering ===
-    from numpy import mean
-    global_mean = mean(emsc_corrected, axis=0, keepdims=True)
-    emsc_centered = emsc_corrected - global_mean
+    mc_step = GlobalMeanCenterStep()
+    if use_state is not None and "mean_spectrum" in use_state:
+        mc_step.mean_ = np.asarray(use_state["mean_spectrum"])
+        emsc_centered = mc_step.transform(emsc_corrected)
+    else:
+        emsc_centered = mc_step.fit_transform(emsc_corrected)
 
     # Rebuild per-group data
     group_data_temp = {gid: [] for gid in sample_groups.keys()}
@@ -321,15 +334,17 @@ def group_preprocess(sample_spectra, sample_groups, spectra_dir,
         plt.close(fig)
         group_plot_dict[group_id] = fig
 
+    if return_state:
+        fitted_state = {"mean_spectrum": mc_step.mean_}
+        return group_avg_spectra, cropped_axis, group_replicates, group_plot_dict, fitted_state
     return group_avg_spectra, cropped_axis, group_replicates, group_plot_dict
 
 
-def group_preprocess_2(sample_spectra, sample_groups, spectra_dir="Group_Preprocessed_Averages",
-                       crop_region=(800, 1800), derivative_order=1,
-                       return_state=False, use_state=None):
+def group_preprocess_savgol_snv_mc(sample_spectra, sample_groups, spectra_dir="Group_Preprocessed_Averages",
+                                   crop_region=(800, 1800), derivative_order=1,
+                                   return_state=False, use_state=None):
     """
-    Group-level preprocessing that matches preprocess_pipeline_2:
-    Crop → SavGol Derivative → SNV → (global) Mean-Center → Group Average
+    Group-level preprocessing: Crop → SavGol-deriv → SNV → Global Mean-Center → Group Average.
 
     Supports:
       - return_state=True → returns {"mean_spectrum": ...}
@@ -344,6 +359,7 @@ def group_preprocess_2(sample_spectra, sample_groups, spectra_dir="Group_Preproc
     cropped_axis = None
 
     cropper = Cropper(region=crop_region)
+    snv_step = SNVStep()
 
     # === 1) Per-spectrum processing: crop → derivative → SNV ===
     for group_id, sample_ids in sample_groups.items():
@@ -361,7 +377,7 @@ def group_preprocess_2(sample_spectra, sample_groups, spectra_dir="Group_Preproc
                 y = cropped.spectral_data
                 y_deriv = savgol_filter(y, polyorder=2, window_length=13, deriv=derivative_order)
 
-                y_snv = snv_normalization(y_deriv.reshape(1, -1)).flatten()
+                y_snv = snv_step.transform(y_deriv.reshape(1, -1)).flatten()
 
                 row_bank.append(y_snv)
                 group_ids_bank.append(group_id)
@@ -537,7 +553,7 @@ def preprocess_none(sample_spectra, spectra_dir, crop_region=(800, 1800)):
 
     return spectra_copy, cropped_axis
 
-def preprocess_pipeline_AsLS_SNV(
+def preprocess_asls_savgol_snv(
         sample_spectra,
         spectra_dir,
         crop_region=(800, 1800),
@@ -612,6 +628,7 @@ def preprocess_pipeline_AsLS_SNV(
     spectra_copy = copy.deepcopy(sample_spectra)
 
     cropper = Cropper(region=crop_region)
+    snv_step = SNVStep()
     axis_ref = None
 
     # --- Main per-spectrum processing (Crop → AsLS → Savgol → SNV)
@@ -640,7 +657,7 @@ def preprocess_pipeline_AsLS_SNV(
             y_smooth = savgol_filter(y_corr, window_length=wl, polyorder=sg_polyorder, deriv=0)
 
             # 3) SNV normalization (per spectrum)
-            y_snv = snv_normalization(y_smooth[np.newaxis, :]).squeeze(0)
+            y_snv = snv_step.transform(y_smooth[np.newaxis, :]).squeeze(0)
 
             # Store final spectrum
             processed_list.append(
@@ -684,3 +701,13 @@ def preprocess_pipeline_AsLS_SNV(
     plt.close()
 
     return spectra_copy, axis_ref
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatibility aliases — old names are preserved; do not remove yet
+# ---------------------------------------------------------------------------
+preprocess_pipeline_2        = preprocess_savgol_snv_mc
+preprocess_pipeline_1        = preprocess_savgol_emsc_mc
+group_preprocess             = group_preprocess_savgol_emsc_mc
+group_preprocess_2           = group_preprocess_savgol_snv_mc
+preprocess_pipeline_AsLS_SNV = preprocess_asls_savgol_snv
