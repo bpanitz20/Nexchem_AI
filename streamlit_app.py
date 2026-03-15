@@ -29,6 +29,7 @@ from preprocessors.raman_preprocess import (
 from collections import defaultdict
 from pathlib import Path
 from config import DEFAULT_CROP_REGION
+from utils.pdf_export import figures_to_pdf_bytes, image_paths_to_pdf_bytes
 
 # ---------------------------------------------------------------------------
 # Preprocessing options — single definition shared by Preprocessing and
@@ -244,6 +245,7 @@ if tab == "Data Loading":
             st.dataframe(y_df, use_container_width=True)
 
         # === Spectra Overlay: Color by replicate or analyte ===
+        _dl_figs: list = []
         st.subheader("📊 Spectra Overlay")
 
         color_mode = st.radio(
@@ -270,6 +272,7 @@ if tab == "Data Loading":
             fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
             buf.seek(0)
             st.image(buf, caption="Spectra colored by replicate", width=800)
+            _dl_figs.append(fig)
             plt.close(fig)
 
         # --- Option 2: color by analyte from Y-block ---
@@ -303,6 +306,7 @@ if tab == "Data Loading":
                     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
                     buf.seek(0)
                     st.image(buf, caption=f"Colored Overlay by {analyte_to_plot}", width=800)
+                    _dl_figs.append(fig)
                     plt.close(fig)
 
                 except Exception as e:
@@ -335,7 +339,17 @@ if tab == "Data Loading":
             fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
             buf.seek(0)
             st.image(buf, width=800)
+            _dl_figs.append(fig)
             plt.close(fig)
+
+        # === Download Data Loading Figures ===
+        if _dl_figs:
+            st.download_button(
+                "⬇️ Download Figures as PDF",
+                data=figures_to_pdf_bytes(_dl_figs),
+                file_name="data_loading_figures.pdf",
+                mime="application/pdf",
+            )
 
 # === TAB 2: Preprocessing ===
 if tab == "Preprocessing":
@@ -445,6 +459,7 @@ if tab == "Preprocessing":
             y_df = st.session_state.get("y_block", None)
 
             # ---------- Overlay with color-mode toggle ----------
+            _prep_figs: list = []
             st.subheader("📊 Preprocessed Spectra Overlay")
 
             color_options = ["Replicate"]
@@ -476,6 +491,7 @@ if tab == "Preprocessing":
                 fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
                 buf.seek(0)
                 st.image(buf, width=800)
+                _prep_figs.append(fig)
                 plt.close(fig)
 
             else:
@@ -508,6 +524,7 @@ if tab == "Preprocessing":
                         fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
                         buf.seek(0)
                         st.image(buf, caption=f"Colored Overlay by {analyte_to_plot}", width=800)
+                        _prep_figs.append(fig)
                         plt.close(fig)
                     except Exception as e:
                         st.warning(f"Could not generate analyte-colored overlay: {e}")
@@ -538,6 +555,7 @@ if tab == "Preprocessing":
                         fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
                         buf.seek(0)
                         st.image(buf, width=800)
+                        _prep_figs.append(fig)
                         plt.close(fig)
 
                 else:
@@ -563,7 +581,17 @@ if tab == "Preprocessing":
                     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
                     buf.seek(0)
                     st.image(buf, width=800)
+                    _prep_figs.append(fig)
                     plt.close(fig)
+
+            # === Download Preprocessing Figures ===
+            if _prep_figs:
+                st.download_button(
+                    "⬇️ Download Preprocessing Figures as PDF",
+                    data=figures_to_pdf_bytes(_prep_figs),
+                    file_name="preprocessing_figures.pdf",
+                    mime="application/pdf",
+                )
 
 
 
@@ -829,6 +857,29 @@ if tab == "Modeling":
                             with col:
                                 st.image(entry["path"], caption=entry["caption"], width=500)
 
+            # === Download Modeling Figures ===
+            _model_paths = []
+            for _res in model_results.values():
+                _mtype = _res.get("model_type", "")
+                if _mtype != "MLP":
+                    for _key in ("cv_r2_plot_path", "cv_rmse_plot_path"):
+                        _p = _res.get(_key)
+                        if _p and os.path.exists(_p):
+                            _model_paths.append(_p)
+                _p = _res.get("cv_pred_plot_path")
+                if _p and os.path.exists(_p):
+                    _model_paths.append(_p)
+                for _entry in _res.get("diagnostic_plots", []):
+                    if os.path.exists(_entry["path"]):
+                        _model_paths.append(_entry["path"])
+            if _model_paths:
+                st.download_button(
+                    "⬇️ Download Modeling Figures as PDF",
+                    data=image_paths_to_pdf_bytes(_model_paths),
+                    file_name="modeling_figures.pdf",
+                    mime="application/pdf",
+                )
+
 
 # === TAB 4: Prediction ===
 from models.prediction_eval import evaluate_on_prediction_set
@@ -1029,6 +1080,8 @@ if tab == "Prediction":
                     )
                     prediction_outputs.append(output)
 
+                st.session_state["prediction_outputs"] = prediction_outputs
+
                 # === Display Results ===
                 st.subheader("📈 Prediction Results")
                 for output in prediction_outputs:
@@ -1044,6 +1097,20 @@ if tab == "Prediction":
                     if "pred_plot_path" in output and os.path.exists(output["pred_plot_path"]):
                         st.image(output["pred_plot_path"], caption="Predicted vs Actual", use_container_width=True)
 
+    # === Download Prediction Figures ===
+    if "prediction_outputs" in st.session_state:
+        _pred_paths = [
+            out["pred_plot_path"]
+            for out in st.session_state["prediction_outputs"]
+            if "pred_plot_path" in out and os.path.exists(out["pred_plot_path"])
+        ]
+        if _pred_paths:
+            st.download_button(
+                "⬇️ Download Prediction Figures as PDF",
+                data=image_paths_to_pdf_bytes(_pred_paths),
+                file_name="prediction_figures.pdf",
+                mime="application/pdf",
+            )
 
 
 # === TAB 5: PCA Analysis ===
@@ -1135,4 +1202,14 @@ if tab == "PCA":
             components=[pc_x - 1, pc_y - 1],  # 🔽 show loadings for the same PCs
             top_n=top_n
         )
-        st.image(os.path.join(results_dir, "PCA_Loadings_Annotated.png"), width=800)
+        loadings_img = os.path.join(results_dir, "PCA_Loadings_Annotated.png")
+        st.image(loadings_img, width=800)
+
+        _pca_paths = [p for p in [score_img, loadings_img] if os.path.exists(p)]
+        if _pca_paths:
+            st.download_button(
+                "⬇️ Download PCA Figures as PDF",
+                data=image_paths_to_pdf_bytes(_pca_paths),
+                file_name="pca_figures.pdf",
+                mime="application/pdf",
+            )
