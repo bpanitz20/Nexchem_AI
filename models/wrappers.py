@@ -143,6 +143,7 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
             n_folds=n_folds,
             groups=groups,
             vip_scores_full=vip_scores_full,
+            scoring_n_components=final_param,
         )
 
         x = x[:, selection.selected_mask]  # replace x for all downstream steps

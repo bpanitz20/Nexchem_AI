@@ -597,38 +597,6 @@ if tab == "Modeling":
                 manual_param = st.number_input("Manual n_components:", min_value=1, max_value=20, value=5)
             param_range = list(range(1, 11))
 
-            st.markdown("---")
-            use_block = st.checkbox(
-                "Use bottom-up block variable selection",
-                value=False,
-                help=(
-                    "Divides the spectrum into contiguous blocks and greedily selects "
-                    "the subset that minimises RMSECV. "
-                    "Workflow: fit full-X PLS → score blocks → reduce X → rerun CV. "
-                    "Disabled when VIP selection is active."
-                ),
-            )
-            if use_block:
-                block_size = st.number_input(
-                    "Block size (variables per block)",
-                    min_value=5, max_value=500, value=100, step=5,
-                    help="Number of contiguous spectral variables per block.",
-                )
-                block_n_comp = st.number_input(
-                    "Scoring n_components",
-                    min_value=1, max_value=20, value=5, step=1,
-                    help=(
-                        "Fixed number of PLS components used when scoring each "
-                        "candidate block set. Clamped automatically if a block "
-                        "is narrower than this value."
-                    ),
-                )
-                from models.selectors.block import BlockSelector
-                selector = BlockSelector(
-                    block_size=int(block_size),
-                    n_components=int(block_n_comp),
-                )
-
         elif model_name == "MLP":
             enable_grid_customization = st.checkbox("Customize MLP Parameter Grid?", value=False)
             if enable_grid_customization:
@@ -692,7 +660,23 @@ if tab == "Modeling":
                 
                 
         n_folds = st.number_input("Number of K-Folds:", min_value=2, max_value=20, value=8)
-        
+
+        if model_name == "PLS":
+            st.subheader("Variable Selection")
+            use_block = st.checkbox(
+                "iPLS",
+                value=False,
+                help="Bottom-up variable selection: divides the spectrum into contiguous blocks and greedily selects the subset that minimises RMSECV.",
+            )
+            if use_block:
+                block_size = st.number_input(
+                    "Block size (variables per block)",
+                    min_value=5, max_value=500, value=100, step=5,
+                    help="Number of contiguous spectral variables per block.",
+                )
+                from models.selectors.block import BlockSelector
+                selector = BlockSelector(block_size=int(block_size))
+
         st.markdown("### Visualization Options")
         
         # Determine whether preprocessing is group-averaged

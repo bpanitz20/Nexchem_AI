@@ -49,6 +49,7 @@ class BlockSelector:
         n_folds: int = 8,
         groups=None,
         vip_scores_full: np.ndarray | None = None,
+        scoring_n_components: int | None = None,
     ) -> SelectionResult:
         """Run block selection and return a ``SelectionResult``.
 
@@ -73,10 +74,11 @@ class BlockSelector:
         SelectionResult
         """
         axis_arr = np.asarray(axis)
+        n_comp = scoring_n_components if scoring_n_components is not None else self.n_components
 
         raw = select_blocks(
             x, y_centered,
-            n_components=self.n_components,
+            n_components=n_comp,
             block_size=self.block_size,
             n_folds=n_folds,
             groups=groups,
