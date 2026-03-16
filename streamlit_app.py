@@ -666,7 +666,7 @@ if tab == "Modeling":
             use_block = st.checkbox(
                 "iPLS",
                 value=False,
-                help="Bottom-up variable selection: divides the spectrum into contiguous blocks and greedily selects the subset that minimises RMSECV.",
+                help="Bottom-up variable selection with iPLS.",
             )
             if use_block:
                 block_size = st.number_input(
@@ -792,16 +792,6 @@ if tab == "Modeling":
                 if summary:
                     st.markdown(summary)
 
-                _sel = result.get("selection")
-                if _sel is not None:
-                    m = _sel.metadata
-                    st.info(
-                        f"Block selection: **{m['n_blocks_selected']}** of "
-                        f"**{m['n_blocks_total']}** blocks selected, "
-                        f"**{_sel.n_selected}** / **{_sel.n_total_features}** variables retained "
-                        f"(block size = {m['block_size_used']}, "
-                        f"scoring n_comp = {m['block_scoring_n_components']})"
-                    )
 
                 if show_cv_tables:
                     cv_table = result.get("cv_table_df")
