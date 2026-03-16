@@ -412,7 +412,7 @@ def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, t
 
 def plot_vip_scores(pls_model, x, axis, directory,
                     model_name, analyte,
-                    label_peaks=False, threshold=1.0):
+                    label_peaks=False, threshold=1.0, vip=None):
     """
     Compute and plot VIP scores for a fitted PLS model.
 
@@ -420,12 +420,16 @@ def plot_vip_scores(pls_model, x, axis, directory,
     ----------
     threshold : float
         Value at which to draw the horizontal significance line.
-        Defaults to 1.0 (conventional cutoff).  When VIP variable selection
-        is active, _pls_compute passes the user-defined threshold so the
-        line matches the selection boundary.
+        Defaults to 1.0 (conventional cutoff).
+    vip : np.ndarray or None
+        Pre-computed VIP scores.  When provided, ``pls_model`` and ``x`` are
+        ignored and the calculation step is skipped.  Pass pre-computed scores
+        here when plotting full-spectrum VIP from a preliminary model (e.g.
+        after block variable selection reduces X).
     """
-    from models.vip import calculate_vip
-    vip = calculate_vip(pls_model)
+    if vip is None:
+        from models.vip import calculate_vip
+        vip = calculate_vip(pls_model)
 
     # Plot VIP scores
     plt.figure(figsize=(10, 5))

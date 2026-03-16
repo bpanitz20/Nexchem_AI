@@ -13,15 +13,13 @@ from config import DEFAULT_MLP_PARAM_GRID
 # ---------------------------------------------------------------------------
 
 def _run_pls(X, y, results_dir, axis, analyte, groups, n_folds, sample_ids,
-             class_labels, manual_param=None, param_grid=None, vip_threshold=None,
-             block_params=None):
+             class_labels, manual_param=None, param_grid=None, selector=None):
     return PLS_model(
         X, y, results_dir, axis,
         analyte=analyte, manual_param=manual_param,
         groups=groups, n_folds=n_folds,
         sample_ids=sample_ids, class_labels=class_labels,
-        vip_threshold=vip_threshold,
-        block_params=block_params,
+        selector=selector,
     )
 
 
@@ -55,8 +53,7 @@ def run_regression_loop(
     groups=None,
     sample_ids=None,
     class_labels=None,
-    vip_threshold=None,
-    block_params=None,
+    selector=None,
 ):
     """
     Runs a regression loop across all analytes in Y_df using the specified model.
@@ -77,6 +74,9 @@ def run_regression_loop(
     groups : array-like or None
     sample_ids : list or None
     class_labels : array-like or None
+    selector : Selector instance or None
+        Variable-selection object (e.g. ``BlockSelector``).  Applied for PLS
+        only; silently ignored for other model types.
 
     Returns
     -------
@@ -94,13 +94,10 @@ def run_regression_loop(
     run_fn = MODEL_REGISTRY[model_name]
     results_all = {}
 
-    # vip_threshold and block_params are only meaningful for PLS; never forwarded to MLP.
+    # selector is only meaningful for PLS; silently omitted for other models.
     call_kwargs = {'manual_param': manual_param, 'param_grid': param_grid}
-    if model_name == "PLS":
-        if vip_threshold is not None:
-            call_kwargs['vip_threshold'] = vip_threshold
-        if block_params is not None:
-            call_kwargs['block_params'] = block_params
+    if model_name == "PLS" and selector is not None:
+        call_kwargs['selector'] = selector
 
     for analyte in Y_df.columns:
         print(f"\n🔬 Regression for: {analyte}")
