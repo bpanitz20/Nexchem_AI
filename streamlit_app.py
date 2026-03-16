@@ -29,7 +29,7 @@ from preprocessors.raman_preprocess import (
 from collections import defaultdict
 from pathlib import Path
 from config import DEFAULT_CROP_REGION
-from utils.pdf_export import figures_to_pdf_bytes, image_paths_to_pdf_bytes
+from utils.pdf_export import figures_to_pdf_bytes, image_paths_to_pdf_bytes, pdf_paths_to_pdf_bytes
 
 # ---------------------------------------------------------------------------
 # Preprocessing options — single definition shared by Preprocessing and
@@ -894,7 +894,7 @@ if tab == "Modeling":
             if _model_paths:
                 st.download_button(
                     "⬇️ Download Modeling Figures as PDF",
-                    data=image_paths_to_pdf_bytes(_model_paths),
+                    data=pdf_paths_to_pdf_bytes(_model_paths),
                     file_name="modeling_figures.pdf",
                     mime="application/pdf",
                 )
@@ -1130,7 +1130,7 @@ if tab == "Prediction":
         if _pred_paths:
             st.download_button(
                 "⬇️ Download Prediction Figures as PDF",
-                data=image_paths_to_pdf_bytes(_pred_paths),
+                data=pdf_paths_to_pdf_bytes(_pred_paths),
                 file_name="prediction_figures.pdf",
                 mime="application/pdf",
             )
@@ -1232,7 +1232,7 @@ if tab == "PCA":
         if _pca_paths:
             st.download_button(
                 "⬇️ Download PCA Figures as PDF",
-                data=image_paths_to_pdf_bytes(_pca_paths),
+                data=pdf_paths_to_pdf_bytes(_pca_paths),
                 file_name="pca_figures.pdf",
                 mime="application/pdf",
             )

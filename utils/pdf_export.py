@@ -1,12 +1,15 @@
 """
 PDF export utilities for Streamlit download buttons.
 
-Two entry points:
-  figures_to_pdf_bytes(figures)      – list of live matplotlib Figure objects
-  image_paths_to_pdf_bytes(paths)    – list of PNG/image file paths saved to disk
+Three entry points:
+  figures_to_pdf_bytes(figures)    – list of live matplotlib Figure objects → vector PDF
+  pdf_paths_to_pdf_bytes(paths)    – list of file paths; swaps .png → .pdf and merges
+                                     vector PDFs with pypdf (preferred, no rasterization)
+  image_paths_to_pdf_bytes(paths)  – legacy fallback: embeds raster PNGs via imshow
 """
 
 import io
+from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -32,6 +35,36 @@ def figures_to_pdf_bytes(figures: list) -> bytes:
     with PdfPages(buf) as pdf:
         for fig in figures:
             pdf.savefig(fig, bbox_inches="tight")
+    buf.seek(0)
+    return buf.read()
+
+
+def pdf_paths_to_pdf_bytes(paths: list) -> bytes:
+    """
+    Merge pre-saved vector PDF files into one PDF without rasterizing.
+
+    For each path in *paths*, the function looks for a sibling file with the
+    same stem but a ``.pdf`` extension (e.g. ``CV_R2_PLS_EPA.png`` →
+    ``CV_R2_PLS_EPA.pdf``).  Paths whose ``.pdf`` sibling does not exist are
+    silently skipped.
+
+    Parameters
+    ----------
+    paths : list of str
+        File paths (typically ``.png``) returned by the plotting functions.
+
+    Returns
+    -------
+    bytes : raw PDF bytes ready for ``st.download_button(data=...)``
+    """
+    from pypdf import PdfWriter
+    writer = PdfWriter()
+    for path in paths:
+        pdf_path = Path(path).with_suffix(".pdf")
+        if pdf_path.exists():
+            writer.append(str(pdf_path))
+    buf = io.BytesIO()
+    writer.write(buf)
     buf.seek(0)
     return buf.read()
 

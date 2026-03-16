@@ -41,8 +41,9 @@ def plot_confusion_matrix(y_true, y_pred, directory, model_name, analyte, labels
     )
     plt.title(f'Confusion Matrix: {model_name} ({analyte}{suffix})')
     plt.tight_layout()
-    filename = f'ConfusionMatrix_{model_name}_{analyte}{suffix}.png'
-    plt.savefig(os.path.join(directory, filename), dpi=300)
+    _base = os.path.join(directory, f'ConfusionMatrix_{model_name}_{analyte}{suffix}')
+    plt.savefig(_base + '.png', dpi=300)
+    plt.savefig(_base + '.pdf')
     plt.close()
     
     
@@ -86,8 +87,9 @@ def plot_roc_curve(y_true, y_proba, directory, model_name, analyte, suffix=""):
     plt.legend(loc='lower right')
     plt.grid(True)
 
-    filename = f"ROC_{model_name}_{analyte}{suffix}.png"
-    plt.savefig(os.path.join(directory, filename), dpi=300, bbox_inches="tight")
+    _base = os.path.join(directory, f"ROC_{model_name}_{analyte}{suffix}")
+    plt.savefig(_base + '.png', dpi=300, bbox_inches="tight")
+    plt.savefig(_base + '.pdf', bbox_inches="tight")
     plt.close()
     
 
@@ -134,6 +136,7 @@ def plot_decision_boundary(x, y, model, directory, model_name, analyte):
     plt.tight_layout()
 
     # Step 6: Save
-    filename = f'DecisionBoundary_{model_name}_{analyte}.png'
-    plt.savefig(os.path.join(directory, filename), dpi=300)
+    _base = os.path.join(directory, f'DecisionBoundary_{model_name}_{analyte}')
+    plt.savefig(_base + '.png', dpi=300)
+    plt.savefig(_base + '.pdf')
     plt.close()

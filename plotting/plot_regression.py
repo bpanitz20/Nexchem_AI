@@ -105,7 +105,7 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
 
 
 
-def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels=None):
+def plot_pred_vs_actual_paper(y_true, y_pred, directory, title, filename, class_labels=None):
     plt.figure(figsize=(8, 6))
 
     if class_labels is not None:
@@ -146,14 +146,16 @@ def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels
     plt.legend()
     plt.tight_layout()
 
-    plt.savefig(os.path.join(directory, filename), dpi=300, bbox_inches="tight")
+    _base = os.path.join(directory, os.path.splitext(filename)[0])
+    plt.savefig(_base + ".png", dpi=300, bbox_inches="tight")
+    plt.savefig(_base + ".pdf", bbox_inches="tight")
     plt.close()
 
 
 
 
 
-def plot_pred_vs_actual_paper(
+def plot_pred_vs_actual(
     y_true,
     y_pred,
     directory,
@@ -353,28 +355,38 @@ def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_nam
     plt.figure(figsize=(8, 6))
     plt.plot(param_range, r2_cv, label='R² CV', marker='o', color='tab:blue')
     if r2_cal:
-        plt.plot(param_range, r2_cal, label='R² Cal', marker='s', color='tab:cyan')
+        plt.plot(param_range, r2_cal, label='R² Cal', marker='s', color='tab:orange')
     plt.title(f"R² vs {param_name} for {analyte} ({model_name})")
     plt.xlabel(param_name)
     plt.ylabel("R²")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(directory, f'CV_R2_{model_name}_{analyte}.png'), dpi=300)
+    _r2_base = os.path.join(directory, f'CV_R2_{model_name}_{analyte}')
+    plt.savefig(_r2_base + '.png', dpi=300)
+    plt.savefig(_r2_base + '.pdf')
     plt.close()
 
     # Plot RMSE
-    plt.figure(figsize=(8, 6))
-    plt.plot(param_range, rmse_cv, label='RMSE CV', marker='o', color='tab:red')
+    fig, ax = plt.subplots(figsize=(8,6))
+    plt.plot(param_range, rmse_cv, label='RMSE CV', marker='o', color='tab:blue')
     if rmse_cal:
-        plt.plot(param_range, rmse_cal, label='RMSE Cal', marker='s', color='tab:pink')
+        plt.plot(param_range, rmse_cal, label='RMSE Cal', marker='o', color='tab:orange')
     plt.title(f"RMSE vs {param_name} for {analyte} ({model_name})")
     plt.xlabel(param_name)
+
+    ax.set_ylim(0,8)
+    ax.set_yticks(range(0,9,1))
+    ax.tick_params(axis="both", direction="in")
+    ax.grid(True, alpha=0.2, linewidth=0.5)
+
     plt.ylabel("RMSE")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(directory, f'CV_RMSE_{model_name}_{analyte}.png'), dpi=300)
+    _rmse_base = os.path.join(directory, f'CV_RMSE_{model_name}_{analyte}')
+    plt.savefig(_rmse_base + '.png', dpi=300)
+    plt.savefig(_rmse_base + '.pdf')
     plt.close()
 
 def plot_coefficients(axis, coefficients, directory, model_name, analyte):
@@ -384,7 +396,9 @@ def plot_coefficients(axis, coefficients, directory, model_name, analyte):
     plt.ylabel('Regression Coefficients')
     plt.title(f'Regression Coefficients ({model_name})')
     plt.grid(True)
-    plt.savefig(os.path.join(directory, f"PLS_Coefficients_{analyte}.png"), dpi=300, bbox_inches="tight")
+    _base = os.path.join(directory, f"PLS_Coefficients_{analyte}")
+    plt.savefig(_base + ".png", dpi=300, bbox_inches="tight")
+    plt.savefig(_base + ".pdf", bbox_inches="tight")
     plt.close()
 
 def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, top_n=20):
@@ -407,7 +421,9 @@ def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, t
     plt.xlabel("Wavenumber (cm⁻¹)")
     plt.ylabel("Importance")
     plt.tight_layout()
-    plt.savefig(os.path.join(directory, f'Feature_Importance_{model_name}_{analyte}.png'), dpi=300)
+    _base = os.path.join(directory, f'Feature_Importance_{model_name}_{analyte}')
+    plt.savefig(_base + '.png', dpi=300)
+    plt.savefig(_base + '.pdf')
     plt.close()
 
 def plot_vip_scores(pls_model, x, axis, directory,
@@ -554,7 +570,9 @@ def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", s
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"), dpi=300)
+    _base = os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}")
+    plt.savefig(_base + ".png", dpi=300)
+    plt.savefig(_base + ".pdf")
     plt.close()
 
 
@@ -617,7 +635,9 @@ def plot_pls_scores(model, x, directory, analyte, class_labels=None, ellipse_alp
     plt.title(f"PLS Score Plot (LV1 vs LV2) - {analyte}")
     plt.grid(True)
 
-    out_path = os.path.join(directory, f"PLS_ScorePlot_LV1vsLV2_{analyte}.png")
+    _base = os.path.join(directory, f"PLS_ScorePlot_LV1vsLV2_{analyte}")
+    out_path = _base + ".png"
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.savefig(_base + ".pdf", bbox_inches="tight")
     plt.close()
     return out_path
