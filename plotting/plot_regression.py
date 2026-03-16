@@ -410,27 +410,28 @@ def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, t
     plt.savefig(os.path.join(directory, f'Feature_Importance_{model_name}_{analyte}.png'), dpi=300)
     plt.close()
 
-def plot_vip_scores(pls_model, x, axis, directory, 
+def plot_vip_scores(pls_model, x, axis, directory,
                     model_name, analyte,
-                    label_peaks=False):
+                    label_peaks=False, threshold=1.0):
     """
     Compute and plot VIP scores for a fitted PLS model.
+
+    Parameters
+    ----------
+    threshold : float
+        Value at which to draw the horizontal significance line.
+        Defaults to 1.0 (conventional cutoff).  When VIP variable selection
+        is active, _pls_compute passes the user-defined threshold so the
+        line matches the selection boundary.
     """
-    t = pls_model.x_scores_
-    w = pls_model.x_weights_
-    q = pls_model.y_loadings_
-
-    p, h = w.shape
-    s = np.square(t).sum(axis=0) * np.square(q).flatten()
-    total_s = np.sum(s)
-
-    vip = np.sqrt(p * (np.dot(np.square(w), s)) / total_s)
-    
+    from models.vip import calculate_vip
+    vip = calculate_vip(pls_model)
 
     # Plot VIP scores
     plt.figure(figsize=(10, 5))
     plt.plot(axis, vip, label='VIP Scores')
-    plt.axhline(1.0, color='red', linestyle='--', label='Significance Threshold')
+    plt.axhline(threshold, color='red', linestyle='--',
+                label=f'Significance Threshold ({threshold:.1f})')
     
     
     if label_peaks:

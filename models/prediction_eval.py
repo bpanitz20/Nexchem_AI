@@ -23,11 +23,12 @@ def evaluate_on_prediction_set(
     directory="",
     Y_pred_true=None,
     model_name="Model",
-    sample_ids=None
+    sample_ids=None,
+    selected_mask=None,
 ):
     """
     Evaluate trained model on external prediction set.
-    
+
     Parameters:
     -----------
     model : sklearn estimator
@@ -46,7 +47,19 @@ def evaluate_on_prediction_set(
         True Y values for prediction set, if available
     model_name : str
         Name of model (e.g., 'PLS', 'MLP')
+    selected_mask : np.ndarray of bool or None
+        Feature mask from VIP variable selection.  When provided, X_pred is
+        reduced to the same variable subset used during training before
+        prediction.  None (default) leaves X_pred unchanged.
     """
+    # Apply VIP feature mask before prediction
+    if selected_mask is not None:
+        assert X_pred.shape[1] == len(selected_mask), (
+            f"Prediction feature count ({X_pred.shape[1]}) does not match "
+            f"training mask length ({len(selected_mask)}). "
+            "Ensure prediction data uses the same preprocessing as training."
+        )
+        X_pred = X_pred[:, selected_mask]
 
     # Step 1: Predict
     Y_pred = model.predict(X_pred)

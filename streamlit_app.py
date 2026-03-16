@@ -585,16 +585,60 @@ if tab == "Modeling":
         st.subheader("Choose Regression Model")
         model_name = st.selectbox("Model Type:", ["PLS", "MLP"])
 
-        manual_param = None
-        param_range = None
-        n_folds = None
-        param_grid = None
+        manual_param  = None
+        param_range   = None
+        n_folds       = None
+        param_grid    = None
+        vip_threshold = None
+        block_params  = None
 
         if model_name == "PLS":
             enable_manual_param = st.checkbox("Manually select number of PLS components?", value=False)
             if enable_manual_param:
                 manual_param = st.number_input("Manual n_components:", min_value=1, max_value=20, value=5)
             param_range = list(range(1, 11))
+
+            st.markdown("---")
+            use_vip = st.checkbox("Use VIP variable selection", value=False)
+            if use_vip:
+                vip_threshold = st.number_input(
+                    "VIP threshold",
+                    min_value=0.1, max_value=3.0, value=1.0, step=0.1,
+                    help=(
+                        "Variables with VIP score below this threshold are removed "
+                        "before final modeling. 1.0 is the conventional cutoff. "
+                        "Workflow: fit full-X PLS → compute VIP → reduce X → rerun CV."
+                    ),
+                )
+
+            st.markdown("---")
+            use_block = st.checkbox(
+                "Use bottom-up block variable selection",
+                value=False,
+                disabled=use_vip,
+                help=(
+                    "Divides the spectrum into contiguous blocks and greedily selects "
+                    "the subset that minimises RMSECV. "
+                    "Workflow: fit full-X PLS → score blocks → reduce X → rerun CV. "
+                    "Disabled when VIP selection is active."
+                ),
+            )
+            if use_block and not use_vip:
+                block_size = st.number_input(
+                    "Block size (variables per block)",
+                    min_value=5, max_value=500, value=100, step=5,
+                    help="Number of contiguous spectral variables per block.",
+                )
+                block_n_comp = st.number_input(
+                    "Scoring n_components",
+                    min_value=1, max_value=20, value=5, step=1,
+                    help=(
+                        "Fixed number of PLS components used when scoring each "
+                        "candidate block set. Clamped automatically if a block "
+                        "is narrower than this value."
+                    ),
+                )
+                block_params = {"block_size": int(block_size), "n_components": int(block_n_comp)}
 
         elif model_name == "MLP":
             enable_grid_customization = st.checkbox("Customize MLP Parameter Grid?", value=False)
@@ -731,7 +775,9 @@ if tab == "Modeling":
                 manual_param=manual_param,
                 n_folds=n_folds,
                 sample_ids=filtered_sample_ids,
-                class_labels=color_labels
+                class_labels=color_labels,
+                vip_threshold=vip_threshold,
+                block_params=block_params,
             )
 
             st.session_state["model_results"] = model_results
@@ -773,6 +819,23 @@ if tab == "Modeling":
                 summary = result.get("summary", None)
                 if summary:
                     st.markdown(summary)
+
+                if result.get("vip_threshold_used") is not None:
+                    st.info(
+                        f"VIP selection: **{result['n_selected']}** of "
+                        f"**{result['n_total_features']}** variables retained "
+                        f"(threshold = {result['vip_threshold_used']:.2f})"
+                    )
+
+                if result.get("selection_method") == "block":
+                    n_blk_sel = len(result.get("selected_block_indices") or [])
+                    n_blk_tot = result.get("n_blocks_total", "?")
+                    st.info(
+                        f"Block selection: **{n_blk_sel}** of **{n_blk_tot}** blocks selected, "
+                        f"**{result['n_selected']}** / **{result['n_total_features']}** variables retained "
+                        f"(block size = {result['block_size_used']}, "
+                        f"scoring n_comp = {result['block_scoring_n_components']})"
+                    )
 
                 if show_cv_tables:
                     cv_table = result.get("cv_table_df")
@@ -1025,7 +1088,8 @@ if tab == "Prediction":
                         directory=results_dir,
                         Y_pred_true=Y_pred_true[:, filtered_Y_pred.columns.get_loc(analyte)] if Y_pred_true is not None else None,
                         model_name=model_name,
-                        sample_ids=filtered_pred_sample_ids
+                        sample_ids=filtered_pred_sample_ids,
+                        selected_mask=result.get("selected_mask"),
                     )
                     prediction_outputs.append(output)
 

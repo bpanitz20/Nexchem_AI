@@ -70,42 +70,163 @@ class PLSFeaturizer(BaseEstimator, TransformerMixin):
 
 
 def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
-                 manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
+                 manual_param=None, sample_ids=None, n_folds=8, class_labels=None,
+                 vip_threshold=None, block_params=None):
     """
     Pure computation layer for PLS regression.
     Runs cross-validation, fits the final model, and computes all metrics.
     No plots are generated. Use plot_pls_results() to produce diagnostic plots.
 
-    Returns a result dict with identical keys to PLS_model(), plus:
-      'param_name'  — hyperparameter name ('n_components')
-      'param_range' — list of values swept during CV
-    """
-    param_name = 'n_components'
-    param_range = list(range(1, max_lv + 1))
-    model = PLSRegression()
+    When vip_threshold is set, an Eigenvector-style two-stage workflow runs:
+      Stage 1 – full-X CV sweep to select n_components and compute VIP scores.
+      Stage 2 – reduced-X CV sweep (VIP-selected variables) for final metrics.
 
-    # Run CV
+    Returns a result dict with identical keys to PLS_model(), plus:
+      'param_name'         — hyperparameter name ('n_components')
+      'param_range'        — values swept during CV (Stage 2 range when VIP active)
+      'selected_mask'      — boolean feature mask, shape (n_features,); None when VIP off
+      'selected_axis'      — spectral axis for the final model
+      'vip_scores_full'    — VIP scores from the preliminary full-X model; None when VIP off
+      'n_selected'         — number of retained features
+      'n_total_features'   — total features before any selection
+      'vip_threshold_used' — threshold value applied; None when VIP off
+    """
+    param_name  = 'n_components'
+    param_range = list(range(1, max_lv + 1))
+    model       = PLSRegression()
+
+    # Variable-selection state — updated in Stage 2 when VIP or block selection active
+    axis_arr        = np.asarray(axis)
+    selected_mask   = None
+    selected_axis   = axis_arr
+    vip_scores_full = None
+    n_total         = axis_arr.shape[0]
+    vip_cap_note    = ""
+
+    # Block-selection metadata (populated only when block_params is set)
+    selection_method           = None
+    selected_block_indices     = None
+    block_size_used            = None
+    block_scoring_n_components = None
+    block_cap_note             = ""
+
+    # ── Stage 1: CV sweep on full X ─────────────────────────────────────────
     cv_results = KFold_CV(x, y, model, param_name, param_range, analyte=analyte,
                           groups=groups, model_name='PLS', directory=directory,
-                          manual_param=manual_param, n_folds=n_folds, sample_ids=sample_ids,
-                          class_labels=class_labels)
+                          manual_param=manual_param, n_folds=n_folds,
+                          sample_ids=sample_ids, class_labels=class_labels)
     fold_df = cv_results.get("fold_df")
 
-    # Final fit with optimal parameter
     if manual_param is not None:
         final_param = manual_param
     else:
         final_param = cv_results['optimal_param']
 
-    # Fit model
+    # ── Stage 2 (optional): variable selection ──────────────────────────────
+    if vip_threshold is not None:
+        from models.vip import calculate_vip
+
+        selection_method = "vip"
+
+        # Preliminary model: use the resolved final_param (respects manual
+        # override when set; uses CV-selected optimum otherwise) so the VIP
+        # basis matches the component count that drives downstream outputs.
+        pls_prelim = PLSRegression(n_components=final_param)
+        pls_prelim.fit(x, y - cv_results['y_mean'])
+        vip_scores_full = calculate_vip(pls_prelim)
+        selected_mask   = vip_scores_full >= vip_threshold
+
+        # Guard A: threshold too aggressive — no variables pass
+        if selected_mask.sum() == 0:
+            fallback = float(np.percentile(vip_scores_full, 90))
+            selected_mask = vip_scores_full >= fallback
+            vip_cap_note += (
+                f"\n\n⚠️ No variables passed VIP threshold {vip_threshold:.2f}. "
+                f"Fell back to top 10%% (VIP ≥ {fallback:.2f})."
+            )
+
+        n_selected    = int(selected_mask.sum())
+        x             = x[:, selected_mask]   # replace x for all downstream steps
+        selected_axis = axis_arr[selected_mask]
+
+        # Guard B: manual n_components may exceed the number of retained variables
+        vip_manual_param = None
+        if manual_param is not None:
+            vip_manual_param = min(manual_param, n_selected)
+            if manual_param > n_selected:
+                vip_cap_note += (
+                    f"\n\n⚠️ Manual n_components ({manual_param}) exceeds "
+                    f"VIP-selected variable count ({n_selected}); "
+                    f"capped to {n_selected}."
+                )
+
+        # Cap param_range to retained variable count and re-run full CV sweep
+        param_range = [p for p in param_range if p <= n_selected]
+        cv_results  = KFold_CV(
+            x, y, PLSRegression(), param_name, param_range,
+            analyte=analyte, groups=groups, model_name='PLS',
+            directory=directory, manual_param=vip_manual_param,
+            n_folds=n_folds, sample_ids=sample_ids, class_labels=class_labels
+        )
+        fold_df     = cv_results.get("fold_df")
+        final_param = cv_results['optimal_param']
+
+    elif block_params is not None:
+        from models.block_selection import select_blocks
+
+        selection_method = "block"
+        bs_size   = block_params.get("block_size", 100)
+        bs_n_comp = block_params.get("n_components", 5)
+
+        y_centered_for_selection = y - cv_results['y_mean']
+        block_result = select_blocks(
+            x, y_centered_for_selection,
+            n_components=bs_n_comp,
+            block_size=bs_size,
+            n_folds=n_folds,
+            groups=groups,
+        )
+
+        selected_mask          = block_result["selected_mask"]
+        selected_axis          = axis_arr[selected_mask]
+        n_selected             = int(selected_mask.sum())
+        selected_block_indices     = block_result["selected_block_indices"]
+        block_size_used            = block_result["block_size_used"]
+        block_scoring_n_components = block_result["block_scoring_n_components"]
+
+        x = x[:, selected_mask]  # replace x for all downstream steps
+
+        # Guard: manual_param may exceed retained variable count
+        block_manual_param = None
+        if manual_param is not None:
+            block_manual_param = min(manual_param, n_selected)
+            if manual_param > n_selected:
+                block_cap_note += (
+                    f"\n\n⚠️ Manual n_components ({manual_param}) exceeds "
+                    f"block-selected variable count ({n_selected}); "
+                    f"capped to {n_selected}."
+                )
+
+        # Cap param_range to retained variable count and re-run full CV sweep
+        param_range = [p for p in param_range if p <= n_selected]
+        cv_results  = KFold_CV(
+            x, y, PLSRegression(), param_name, param_range,
+            analyte=analyte, groups=groups, model_name='PLS',
+            directory=directory, manual_param=block_manual_param,
+            n_folds=n_folds, sample_ids=sample_ids, class_labels=class_labels
+        )
+        fold_df     = cv_results.get("fold_df")
+        final_param = cv_results['optimal_param']
+
+    # ── Final model fit (x may now be x_reduced) ────────────────────────────
     model.set_params(**{param_name: final_param})
     model.fit(x, y - cv_results['y_mean'])
     Y_pred = model.predict(x)
 
     # Metrics
-    final_r2 = r2_score(y - cv_results['y_mean'], Y_pred)
-    final_mse = mean_squared_error(y - cv_results['y_mean'], Y_pred)
-    final_r2_CV = cv_results['pooled_r2_CV'][param_range.index(cv_results['optimal_param'])]
+    final_r2      = r2_score(y - cv_results['y_mean'], Y_pred)
+    final_mse     = mean_squared_error(y - cv_results['y_mean'], Y_pred)
+    final_r2_CV   = cv_results['pooled_r2_CV'][param_range.index(cv_results['optimal_param'])]
     final_rmse_CV = cv_results['pooled_rmse_CV'][param_range.index(cv_results['optimal_param'])]
 
     # Save CV summary CSV and print console summary
@@ -140,26 +261,59 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
         param_name=param_name
     )
 
+    # Append variable-selection info to the summary string
+    if vip_threshold is not None:
+        summary_string += (
+            f"\n\n**VIP variable selection**: {int(selected_mask.sum())} / {n_total} "
+            f"variables retained (threshold = {vip_threshold:.2f})"
+        )
+    if vip_cap_note:
+        summary_string += vip_cap_note
+
+    if selection_method == "block":
+        n_sel = int(selected_mask.sum())
+        summary_string += (
+            f"\n\n**Block variable selection**: {block_result['n_blocks_selected']} / "
+            f"{block_result['n_blocks_total']} blocks selected, "
+            f"{n_sel} / {n_total} variables retained "
+            f"(block size = {block_size_used}, scoring n_comp = {block_scoring_n_components})"
+        )
+    if block_cap_note:
+        summary_string += block_cap_note
+
     return {
-        'model_type': 'PLS',
-        'model': model,
-        'final_r2': final_r2,
-        'final_mse': final_mse,
-        'cv_results': cv_results,
-        'cv_table_df': cv_table_df,
-        'cv_r2_plot_path': cv_results['cv_r2_plot_path'],
-        'cv_rmse_plot_path': cv_results['cv_rmse_plot_path'],
-        'cv_pred_plot_path': cv_results['cv_pred_plot_path'],
-        'summary': summary_string,
-        'vip_plot_path': os.path.join(directory, f"VIP_Scores_PLS_{analyte}.png"),
-        'coef_plot_path': os.path.join(directory, f"PLS_Coefficients_{analyte}.png"),
-        't2_plot_path': os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"),
+        'model_type':           'PLS',
+        'model':                model,
+        'final_r2':             final_r2,
+        'final_mse':            final_mse,
+        'cv_results':           cv_results,
+        'cv_table_df':          cv_table_df,
+        'cv_r2_plot_path':      cv_results['cv_r2_plot_path'],
+        'cv_rmse_plot_path':    cv_results['cv_rmse_plot_path'],
+        'cv_pred_plot_path':    cv_results['cv_pred_plot_path'],
+        'summary':              summary_string,
+        'vip_plot_path':        os.path.join(directory, f"VIP_Scores_PLS_{analyte}.png"),
+        'coef_plot_path':       os.path.join(directory, f"PLS_Coefficients_{analyte}.png"),
+        't2_plot_path':         os.path.join(directory, f"T2_vs_Q_Residuals_PLS_{analyte}.png"),
         'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_PLS_{analyte}.png"),
-        'fold_df': fold_df,
-        'scoreplot_path': None,       # populated by plot_pls_results()
-        # extras consumed by the reporting layer
-        'param_name': param_name,
-        'param_range': param_range,
+        'fold_df':              fold_df,
+        'scoreplot_path':       None,       # populated by plot_pls_results()
+        'param_name':           param_name,
+        'param_range':          param_range,
+        # Variable-selection keys (None / full-axis defaults when no selection active)
+        'selected_mask':               selected_mask,
+        'selected_axis':               selected_axis,
+        'vip_scores_full':             vip_scores_full,
+        'n_selected':                  int(selected_mask.sum()) if selected_mask is not None else n_total,
+        'n_total_features':            n_total,
+        'vip_threshold_used':          vip_threshold,
+        # Block-selection metadata
+        'selection_method':            selection_method,
+        'selected_block_indices':      selected_block_indices,
+        'block_size_used':             block_size_used,
+        'block_scoring_n_components':  block_scoring_n_components,
+        'n_blocks_total':              block_result['n_blocks_total'] if selection_method == "block" else None,
+        'n_blocks_selected':           block_result['n_blocks_selected'] if selection_method == "block" else None,
     }
 
 
@@ -212,7 +366,8 @@ def plot_pls_results(results, x, y, axis, directory, analyte,
     )
 
     plot_coefficients(axis, model.coef_, directory, "PLS", analyte)
-    plot_vip_scores(model, x, axis, directory, "PLS", analyte)
+    plot_vip_scores(model, x, axis, directory, "PLS", analyte,
+                    threshold=results.get('vip_threshold_used') or 1.0)
 
     scoreplot_path = None
     if final_param >= 2:
@@ -228,15 +383,36 @@ def plot_pls_results(results, x, y, axis, directory, analyte,
 
 
 def PLS_model(x, y, directory, axis, max_lv=15, analyte="", groups=None,
-              manual_param=None, sample_ids=None, n_folds=8, class_labels=None):
+              manual_param=None, sample_ids=None, n_folds=8, class_labels=None,
+              vip_threshold=None, block_params=None):
     """
     Public API for PLS regression. Signature and return dict are unchanged.
     Internally delegates to _pls_compute() (pure computation) and
     plot_pls_results() (all diagnostic plots).
+
+    When vip_threshold is set, an Eigenvector-style VIP variable selection is
+    applied before the final model: full-X CV → VIP → reduce X → reduced-X CV
+    → final model. All diagnostic plots reflect the reduced feature space.
+
+    When block_params is set (dict with 'block_size' and 'n_components'), a
+    bottom-up greedy block selection is applied instead: full-X CV → block
+    scoring → reduce X → reduced-X CV → final model.  Mutually exclusive with
+    vip_threshold; if both are provided, VIP takes priority.
     """
     results = _pls_compute(x, y, directory, axis, max_lv, analyte, groups,
-                           manual_param, sample_ids, n_folds, class_labels)
-    scoreplot_path = plot_pls_results(results, x, y, axis, directory, analyte,
+                           manual_param, sample_ids, n_folds, class_labels,
+                           vip_threshold=vip_threshold, block_params=block_params)
+
+    # When VIP selection is active, all diagnostic plots use the reduced
+    # feature matrix and its corresponding spectral axis.
+    if results['selected_mask'] is not None:
+        x_plot    = x[:, results['selected_mask']]
+        axis_plot = results['selected_axis']
+    else:
+        x_plot    = x
+        axis_plot = np.asarray(axis)
+
+    scoreplot_path = plot_pls_results(results, x_plot, y, axis_plot, directory, analyte,
                                       sample_ids=sample_ids, class_labels=class_labels)
     results['scoreplot_path'] = scoreplot_path
     results['diagnostic_plots'] = [
