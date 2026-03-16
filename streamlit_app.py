@@ -613,10 +613,11 @@ if tab == "Modeling":
         st.subheader("Choose Regression Model")
         model_name = st.selectbox("Model Type:", ["PLS", "MLP"])
 
-        manual_param = None
-        param_range = None
-        n_folds = None
-        param_grid = None
+        manual_param  = None
+        param_range   = None
+        n_folds       = None
+        param_grid    = None
+        selector = None
 
         if model_name == "PLS":
             enable_manual_param = st.checkbox("Manually select number of PLS components?", value=False)
@@ -687,7 +688,23 @@ if tab == "Modeling":
                 
                 
         n_folds = st.number_input("Number of K-Folds:", min_value=2, max_value=20, value=8)
-        
+
+        if model_name == "PLS":
+            st.subheader("Variable Selection")
+            use_block = st.checkbox(
+                "iPLS",
+                value=False,
+                help="Bottom-up variable selection with iPLS.",
+            )
+            if use_block:
+                block_size = st.number_input(
+                    "Block size (variables per block)",
+                    min_value=5, max_value=500, value=100, step=5,
+                    help="Number of contiguous spectral variables per block.",
+                )
+                from models.selectors.block import BlockSelector
+                selector = BlockSelector(block_size=int(block_size))
+
         st.markdown("### Visualization Options")
         
         # Determine whether preprocessing is group-averaged
@@ -759,7 +776,8 @@ if tab == "Modeling":
                 manual_param=manual_param,
                 n_folds=n_folds,
                 sample_ids=filtered_sample_ids,
-                class_labels=color_labels
+                class_labels=color_labels,
+                selector=selector,
             )
 
             st.session_state["model_results"] = model_results
@@ -801,6 +819,7 @@ if tab == "Modeling":
                 summary = result.get("summary", None)
                 if summary:
                     st.markdown(summary)
+
 
                 if show_cv_tables:
                     cv_table = result.get("cv_table_df")
@@ -1076,7 +1095,11 @@ if tab == "Prediction":
                         directory=results_dir,
                         Y_pred_true=Y_pred_true[:, filtered_Y_pred.columns.get_loc(analyte)] if Y_pred_true is not None else None,
                         model_name=model_name,
-                        sample_ids=filtered_pred_sample_ids
+                        sample_ids=filtered_pred_sample_ids,
+                        selected_mask=(
+                            result["selection"].selected_mask
+                            if result.get("selection") is not None else None
+                        ),
                     )
                     prediction_outputs.append(output)
 
