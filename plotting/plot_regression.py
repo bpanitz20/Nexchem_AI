@@ -368,17 +368,18 @@ def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_nam
     plt.close()
 
     # Plot RMSE
-    fig, ax = plt.subplots(figsize=(8,6))
+    #fig, ax = plt.subplots(figsize=(8,6))
+    plt.figure(figsize=(8, 6))
     plt.plot(param_range, rmse_cv, label='RMSE CV', marker='o', color='tab:blue')
     if rmse_cal:
         plt.plot(param_range, rmse_cal, label='RMSE Cal', marker='o', color='tab:orange')
     plt.title(f"RMSE vs {param_name} for {analyte} ({model_name})")
     plt.xlabel(param_name)
-
-    ax.set_ylim(0,8)
-    ax.set_yticks(range(0,9,1))
-    ax.tick_params(axis="both", direction="in")
-    ax.grid(True, alpha=0.2, linewidth=0.5)
+    
+    #ax.set_ylim(0,8)
+    #ax.set_yticks(range(0,9,1))
+    #ax.tick_params(axis="both", direction="in")
+    #ax.grid(True, alpha=0.2, linewidth=0.5)
 
     plt.ylabel("RMSE")
     plt.grid(True)
@@ -513,7 +514,8 @@ def plot_vip_scores(pls_model, x, axis, directory,
     plt.close()
     
     
-def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", sample_ids=None):
+def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS",
+                        sample_ids=None, class_labels=None):
     """
     Plots Hotelling's T² vs Q-residuals for PLS models, with optional outlier labeling.
 
@@ -533,6 +535,8 @@ def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", s
         Name of the model (default 'PLS')
     sample_ids : list of str or None
         Sample IDs to annotate (must match order of X rows)
+    class_labels : array-like or None
+        Class labels for coloring points; when None all points share one color.
     """
     # Compute scores and loadings
     T = pls_model.x_scores_
@@ -550,22 +554,39 @@ def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", s
 
     # Outlier detection
     outlier_mask = (T2 > T2_threshold) | (Q_residuals > Q_threshold)
-    
+
+    # Normalize for plotting (thresholds become 1.0 on each axis)
+    T2_plot = np.sqrt(T2 / T2_threshold)
+    Q_plot  = np.sqrt(Q_residuals / Q_threshold)
+
     # Plot
     plt.figure(figsize=(8, 6))
-    plt.scatter(T2, Q_residuals, alpha=0.7, edgecolors='k', label='Samples')
-    plt.axvline(T2_threshold, color='red', linestyle='--', label="T² 95% Limit")
-    plt.axhline(Q_threshold, color='blue', linestyle='--', label="Q Residual 95% Limit")
+
+    if class_labels is not None:
+        le = LabelEncoder()
+        encoded = le.fit_transform(class_labels)
+        colors = plt.cm.tab10.colors
+        for i, cls in enumerate(np.unique(encoded)):
+            idx = encoded == cls
+            plt.scatter(T2_plot[idx], Q_plot[idx],
+                        color=colors[i % len(colors)], alpha=0.7, edgecolors='k',
+                        label=str(le.classes_[cls]))
+        plt.legend(title="Class", bbox_to_anchor=(1.05, 1), loc='upper left')
+    else:
+        plt.scatter(T2_plot, Q_plot, alpha=0.7, edgecolors='k', label='Samples')
+
+    plt.axvline(1.0, color='red', linestyle='--', label="T² 95% Limit")
+    plt.axhline(1.0, color='blue', linestyle='--', label="Q Residual 95% Limit")
 
     # Annotate outliers
     if sample_ids is not None:
         for i, is_outlier in enumerate(outlier_mask):
             if is_outlier:
-                plt.annotate(sample_ids[i], (T2[i], Q_residuals[i]),
+                plt.annotate(sample_ids[i], (T2_plot[i], Q_plot[i]),
                              textcoords="offset points", xytext=(5, 5), ha='left', fontsize=8)
 
-    plt.xlabel("Hotelling's T²")
-    plt.ylabel("Q Residual")
+    plt.xlabel("Reduced T²  (√(T²/T²_limit))")
+    plt.ylabel("Reduced Q Residuals  (√(Q/Q_limit))")
     plt.title(f"T² vs Q-Residuals for {analyte} ({model_name})")
     plt.legend()
     plt.grid(True)

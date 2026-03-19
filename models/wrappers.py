@@ -281,7 +281,8 @@ def plot_pls_results(results, x, y, axis, directory, analyte,
     )
 
     # Final model diagnostics
-    plot_t2_q_residuals(model, x, y, analyte, directory, model_name="PLS", sample_ids=sample_ids)
+    plot_t2_q_residuals(model, x, y, analyte, directory, model_name="PLS",
+                        sample_ids=sample_ids, class_labels=class_labels)
 
     Y_pred = model.predict(x)
     plot_pred_vs_actual(
