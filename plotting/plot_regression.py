@@ -105,7 +105,7 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
 
 
 
-def plot_pred_vs_actual_paper(y_true, y_pred, directory, title, filename, class_labels=None):
+def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels=None):
     plt.figure(figsize=(8, 6))
 
     if class_labels is not None:
@@ -155,7 +155,7 @@ def plot_pred_vs_actual_paper(y_true, y_pred, directory, title, filename, class_
 
 
 
-def plot_pred_vs_actual(
+def plot_pred_vs_actual_paper(
     y_true,
     y_pred,
     directory,
