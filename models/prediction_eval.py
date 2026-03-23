@@ -102,11 +102,17 @@ def evaluate_on_prediction_set(
             "r2_pred": r2_pred,
             "rmsep": rmsep,
             "pred_plot_path": os.path.join(directory, f"External_Pred_vs_Actual_{model_name}_{analyte}.png"),
-            "csv_path": csv_path
+            "csv_path": csv_path,
+            # Raw arrays for interactive plots in the Streamlit app
+            "y_true": np.asarray(Y_pred_true).ravel(),
+            "y_pred": np.asarray(Y_pred).ravel(),
+            "sample_ids": sample_ids,
         }
     else:
         return {
             "analyte": analyte,
             "model_name": model_name,
-            "csv_path": csv_path
+            "csv_path": csv_path,
+            "y_pred": np.asarray(Y_pred).ravel(),
+            "sample_ids": sample_ids,
         }

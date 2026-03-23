@@ -221,6 +221,7 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
     if block_cap_note:
         summary_string += block_cap_note
 
+    y_mean = cv_results['y_mean']
     return {
         'model_type':           'PLS',
         'model':                model,
@@ -241,7 +242,12 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
         'param_name':           param_name,
         'param_range':          param_range,
         # Variable-selection result (SelectionResult when active; None otherwise)
-        'selection': selection,
+        'selection':            selection,
+        # Raw arrays for interactive plots in the Streamlit app
+        'y_true':               np.asarray(y).ravel(),
+        'y_pred_cv':            (cv_results['Y_pred_CV'] + y_mean).ravel(),
+        'y_pred_cal':           (Y_pred + y_mean).ravel(),
+        'sample_ids':           sample_ids,
     }
 
 
@@ -454,6 +460,11 @@ def _mlp_compute(x, y, directory, axis, analyte="",
         'feature_importance_path': os.path.join(directory, f"Feature_Importance_MLP_{analyte}.png"),
         'final_pred_plot_path': os.path.join(directory, f"Final_Pred_vs_Actual_MLP_{analyte}.png"),
         'fold_df': fold_df,
+        # Raw arrays for interactive plots in the Streamlit app
+        'y_true':     y.ravel(),
+        'y_pred_cv':  Y_pred_CV.ravel(),
+        'y_pred_cal': Y_pred.ravel(),
+        'sample_ids': sample_ids,
     }
 
 
