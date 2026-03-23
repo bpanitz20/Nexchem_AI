@@ -631,7 +631,7 @@ if tab == "Modeling":
             _COARSE_GRID = {
                 'pls__n_components':      [4, 6, 10],
                 'mlp__hidden_layer_sizes': [(5,), (10,), (20,)],
-                'mlp__alpha':             [0.01, 0.05, 0.1],
+                'mlp__alpha':             [0.001, 0.01, 0.05, 0.1],
                 'mlp__learning_rate_init':[0.001, 0.005, 0.01],
                 'mlp__activation':        ['relu'],
                 'mlp__early_stopping':    [True],
@@ -640,7 +640,7 @@ if tab == "Modeling":
             _FINE_GRID = {
                 'pls__n_components':      [4, 5, 6, 7, 8, 9, 10, 12],
                 'mlp__hidden_layer_sizes': [(5,), (10,), (15,), (20,), (10, 1), (20, 1)],
-                'mlp__alpha':             [0.01, 0.03, 0.06, 0.1],
+                'mlp__alpha':             [0.001, 0.005, 0.01, 0.03, 0.06, 0.1],
                 'mlp__learning_rate_init':[0.001, 0.003, 0.006, 0.01],
                 'mlp__activation':        ['relu'],
                 'mlp__early_stopping':    [True],

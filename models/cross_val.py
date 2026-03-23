@@ -164,7 +164,9 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
     if task == 'regression':
         y_mean = np.mean(y, axis=0)
         y_centered = y - y_mean
-  
+        if scoring is None:
+            scoring = 'neg_root_mean_squared_error'
+
    # Initialize CV strategy
     if groups is not None:
        cv = GroupKFold(n_splits=n_folds)
