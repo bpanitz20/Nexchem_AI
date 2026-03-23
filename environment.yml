@@ -36,4 +36,5 @@ dependencies:
       - threadpoolctl
       - tzdata
       - wget
+      -plotly - 6.6.0
       - git+https://github.com/rohanisaac/spc.git

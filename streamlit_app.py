@@ -17,6 +17,7 @@ from loaders.raman_loader import load_raman
 import matplotlib.pyplot as plt
 import re
 from plotting.plot_raw import plot_spectra_colored_by_analyte
+from plotting.plot_regression import plot_pred_vs_actual_interactive
 from preprocessors.raman_preprocess import (
     preprocess_savgol_emsc_mc,
     preprocess_savgol_snv_mc,
@@ -829,7 +830,7 @@ if tab == "Modeling":
 
             # === CV Diagnostic Plots ===
             st.subheader("Cross Validation Diagnostics")
-            
+
             for analyte in model_results.keys():
                 result = model_results[analyte]
                 plot_paths = []
@@ -844,17 +845,23 @@ if tab == "Modeling":
                     if rmse_plot and os.path.exists(rmse_plot):
                         plot_paths.append(rmse_plot)
                         captions.append(f"CV RMSE vs n_components for {analyte}")
-    
-                pred_plot = result.get("cv_pred_plot_path")
-                if pred_plot and os.path.exists(pred_plot):
-                    plot_paths.append(pred_plot)
-                    captions.append(f"CV Predicted vs Actual for {analyte}")
-                    
+
                     if plot_paths:
                         cols = st.columns(len(plot_paths))
                         for i, (col, path) in enumerate(zip(cols, plot_paths)):
                             with col:
-                                st.image(path, caption=captions[i], use_container_width=True)    
+                                st.image(path, caption=captions[i], use_container_width=True)
+
+                # Interactive CV predicted vs actual
+                if result.get("y_true") is not None and result.get("y_pred_cv") is not None:
+                    fig = plot_pred_vs_actual_interactive(
+                        y_true=result["y_true"],
+                        y_pred=result["y_pred_cv"],
+                        title=f"CV Predicted vs Actual — {analyte}",
+                        sample_ids=result.get("sample_ids"),
+                        class_labels=color_labels,
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
             # === Diagnostic Plots ===
             st.subheader("📉 Loadings, Variables & Scores")
@@ -1117,8 +1124,14 @@ if tab == "Prediction":
                         df = pd.read_csv(output["csv_path"])
                         st.dataframe(df)
 
-                    if "pred_plot_path" in output and os.path.exists(output["pred_plot_path"]):
-                        st.image(output["pred_plot_path"], caption="Predicted vs Actual", use_container_width=True)
+                    if output.get("y_true") is not None and output.get("y_pred") is not None:
+                        fig = plot_pred_vs_actual_interactive(
+                            y_true=output["y_true"],
+                            y_pred=output["y_pred"],
+                            title=f"Predicted vs Actual — {output['analyte']}",
+                            sample_ids=output.get("sample_ids"),
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
 
     # === Download Prediction Figures ===
     if "prediction_outputs" in st.session_state:

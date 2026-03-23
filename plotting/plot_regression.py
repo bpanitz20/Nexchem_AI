@@ -558,6 +558,106 @@ def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS", s
     plt.close()
 
 
+def plot_pred_vs_actual_interactive(y_true, y_pred, title, sample_ids=None, class_labels=None):
+    """
+    Build an interactive Plotly predicted vs actual scatter plot.
+    Returns a plotly Figure — render in Streamlit with st.plotly_chart().
+    Hover over any point to see its sample ID, actual value, and predicted value.
+
+    Parameters
+    ----------
+    y_true : array-like
+    y_pred : array-like
+    title : str
+    sample_ids : list of str or None
+        Labels shown on hover. Falls back to 'sample_1', 'sample_2', … if None.
+    class_labels : array-like of str or None
+        When provided, points are colored by class.
+    """
+    import plotly.graph_objects as go
+
+    y_true = np.asarray(y_true).ravel()
+    y_pred = np.asarray(y_pred).ravel()
+
+    if sample_ids is None:
+        sample_ids = [f"sample_{i+1}" for i in range(len(y_true))]
+    sample_ids = np.asarray(sample_ids)
+
+    lo = float(np.nanmin([y_true.min(), y_pred.min()]))
+    hi = float(np.nanmax([y_true.max(), y_pred.max()]))
+
+    fig = go.Figure()
+
+    # 1:1 line
+    fig.add_trace(go.Scatter(
+        x=[lo, hi], y=[lo, hi],
+        mode='lines',
+        line=dict(color='green', dash='dash', width=1.5),
+        name='1:1',
+        hoverinfo='skip'
+    ))
+
+    # Best-fit line
+    slope, intercept = np.polyfit(y_true, y_pred, 1)
+    x_line = np.linspace(lo, hi, 100)
+    fig.add_trace(go.Scatter(
+        x=x_line, y=slope * x_line + intercept,
+        mode='lines',
+        line=dict(color='red', width=1.8),
+        name=f'Fit (slope={slope:.4f})',
+        hoverinfo='skip'
+    ))
+
+    # Scatter — grouped by class if provided
+    _colors = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd',
+               '#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf']
+
+    if class_labels is not None:
+        class_labels = np.asarray(class_labels).astype(str)
+        for i, label in enumerate(np.unique(class_labels)):
+            idx = class_labels == label
+            fig.add_trace(go.Scatter(
+                x=y_true[idx], y=y_pred[idx],
+                mode='markers',
+                name=label,
+                customdata=sample_ids[idx],
+                hovertemplate=(
+                    '<b>%{customdata}</b><br>'
+                    'Actual: %{x:.4f}<br>'
+                    'Predicted: %{y:.4f}<extra></extra>'
+                ),
+                marker=dict(size=8, opacity=0.85,
+                            color=_colors[i % len(_colors)],
+                            line=dict(width=0.5, color='black'))
+            ))
+    else:
+        fig.add_trace(go.Scatter(
+            x=y_true, y=y_pred,
+            mode='markers',
+            name='Samples',
+            customdata=sample_ids,
+            hovertemplate=(
+                '<b>%{customdata}</b><br>'
+                'Actual: %{x:.4f}<br>'
+                'Predicted: %{y:.4f}<extra></extra>'
+            ),
+            marker=dict(size=8, opacity=0.85, color='#1f77b4',
+                        line=dict(width=0.5, color='black'))
+        ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title='Actual Values',
+        yaxis_title='Predicted Values',
+        hovermode='closest',
+        height=500,
+        legend=dict(x=0.01, y=0.99),
+        
+    )
+
+    return fig
+
+
 def plot_pls_scores(model, x, directory, analyte, class_labels=None, ellipse_alpha=0.2):
     import matplotlib.pyplot as plt
     from matplotlib.patches import Ellipse
