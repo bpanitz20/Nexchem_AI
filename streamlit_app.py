@@ -627,30 +627,77 @@ if tab == "Modeling":
             param_range = list(range(1, 11))
 
         elif model_name == "MLP":
-            enable_grid_customization = st.checkbox("Customize MLP Parameter Grid?", value=False)
-            if enable_grid_customization:
-                
-                # PLS X-block compression
-                pls_components = st.multiselect(
-                    "PLS components (X-block compression):",
-                    options=[2, 3, 4, 5, 6, 7, 8, 10, 12, 14],
-                    default=[6]
-                )
-                
-                # Nodes per layer 
-                nodes_first = st.multiselect(
-                    "Nodes 1st layer:",
-                    options=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16],
-                    default=[10]      # you can set [2] if you want strictly 2
-                )
-        
-                nodes_second = st.multiselect(
-                    "Nodes 2nd layer (0 = none):",
-                    options=[0, 1, 2, 3, 4, 5, 6],
-                    default=[0]      # 0 = single layer, 2 = 2nd layer with 2 nodes
-                )
-        
-                # Build hidden_layer_sizes list like Eigenvector
+            # --- Preset grid definitions ---
+            _COARSE_GRID = {
+                'pls__n_components':      [4, 6, 10],
+                'mlp__hidden_layer_sizes': [(5,), (10,), (20,)],
+                'mlp__alpha':             [0.01, 0.05, 0.1],
+                'mlp__learning_rate_init':[0.001, 0.005, 0.01],
+                'mlp__activation':        ['relu'],
+                'mlp__early_stopping':    [True],
+                'mlp__solver':            ['adam'],
+            }
+            _FINE_GRID = {
+                'pls__n_components':      [4, 5, 6, 7, 8, 9, 10, 12],
+                'mlp__hidden_layer_sizes': [(5,), (10,), (15,), (20,), (10, 1), (20, 1)],
+                'mlp__alpha':             [0.01, 0.03, 0.06, 0.1],
+                'mlp__learning_rate_init':[0.001, 0.003, 0.006, 0.01],
+                'mlp__activation':        ['relu'],
+                'mlp__early_stopping':    [True],
+                'mlp__solver':            ['adam'],
+            }
+
+            preset = st.selectbox("Parameter grid preset:", ["Coarse", "Fine", "Custom"])
+
+            if preset == "Coarse":
+                param_grid = _COARSE_GRID
+                with st.expander("Coarse grid details"):
+                    st.markdown(
+                        f"- **PLS components:** {_COARSE_GRID['pls__n_components']}  \n"
+                        f"- **Hidden layers:** {[str(s) for s in _COARSE_GRID['mlp__hidden_layer_sizes']]}  \n"
+                        f"- **Alpha:** {_COARSE_GRID['mlp__alpha']}  \n"
+                        f"- **Learning rate:** {_COARSE_GRID['mlp__learning_rate_init']}  \n"
+                        f"- **Activation:** relu"
+                    )
+
+            elif preset == "Fine":
+                param_grid = _FINE_GRID
+                with st.expander("Fine grid details"):
+                    st.markdown(
+                        f"- **PLS components:** {_FINE_GRID['pls__n_components']}  \n"
+                        f"- **Hidden layers:** {[str(s) for s in _FINE_GRID['mlp__hidden_layer_sizes']]}  \n"
+                        f"- **Alpha:** {_FINE_GRID['mlp__alpha']}  \n"
+                        f"- **Learning rate:** {_FINE_GRID['mlp__learning_rate_init']}  \n"
+                        f"- **Activation:** relu"
+                    )
+
+            else:  # Custom
+                def _parse_ints(text):
+                    return [int(v.strip()) for v in text.split(",") if v.strip()]
+
+                def _parse_floats(text):
+                    return [float(v.strip()) for v in text.split(",") if v.strip()]
+
+                pls_text   = st.text_input("PLS components (comma-separated ints, range 3–12):", "4, 6, 8, 10")
+                nodes1_text = st.text_input("1st layer nodes (comma-separated ints, range 1–20):", "5, 10, 20")
+                nodes2_text = st.text_input("2nd layer nodes (0 = none, comma-separated):", "0, 1")
+                alpha_text  = st.text_input("Alpha values (comma-separated floats, range 0.01–0.1):", "0.01, 0.05, 0.1")
+                lr_text     = st.text_input("Learning rates (comma-separated floats, range 0.001–0.01):", "0.001, 0.005, 0.01")
+
+                try:
+                    pls_components = _parse_ints(pls_text)
+                    nodes_first    = _parse_ints(nodes1_text)
+                    nodes_second   = _parse_ints(nodes2_text)
+                    alpha_values   = _parse_floats(alpha_text)
+                    learning_rates = _parse_floats(lr_text)
+                except ValueError:
+                    st.error("Could not parse one of the custom inputs — check for non-numeric values.")
+                    pls_components = [6]
+                    nodes_first = [10]
+                    nodes_second = [0]
+                    alpha_values = [0.05]
+                    learning_rates = [0.005]
+
                 hidden_layer_sizes = []
                 for n1 in nodes_first:
                     for n2 in nodes_second:
@@ -659,25 +706,21 @@ if tab == "Modeling":
                         else:
                             hidden_layer_sizes.append((n1, n2))
 
-                alpha_values = st.multiselect("Alpha values:", options=[0.029, 0.03, 0.03, 0.032, 0.035, 0.36, 0.037, 0.038, 0.04, 0.045, 0.05, 0.55, 0.6], default=[0.03])
-                learning_rates = st.multiselect("Learning rates:", options=[  0.002, 0.003, 0.0035, 0.004, 0.0042, 0.0043, 0.0044, 0.0045, 0.0046, 0.0047, 0.005, 0.0052, 0.0054, 0.006], default=[0.004])
-
-                activations = st.multiselect(
-                    "Activation functions:",
-                    options=["relu", "tanh"],
-                    default=["relu"]
-                )
-
-
                 param_grid = {
-            'pls__n_components': pls_components,          
-            'mlp__hidden_layer_sizes': hidden_layer_sizes,
-            'mlp__activation': activations,
-            'mlp__alpha': alpha_values,
-            'mlp__learning_rate_init': learning_rates,
-            'mlp__early_stopping': [True],
-            'mlp__solver': ['adam']
-        }
+                    'pls__n_components':       pls_components,
+                    'mlp__hidden_layer_sizes': hidden_layer_sizes,
+                    'mlp__alpha':              alpha_values,
+                    'mlp__learning_rate_init': learning_rates,
+                    'mlp__activation':         ['relu'],
+                    'mlp__early_stopping':     [True],
+                    'mlp__solver':             ['adam'],
+                }
+
+            # --- Combo count ---
+            if param_grid:
+                from math import prod
+                n_combos = prod(len(v) for v in param_grid.values())
+                st.info(f"Grid size: **{n_combos} combinations** to fit")
 
         # === Cross-validation options ===
         st.subheader("Choose Cross-Validation")
@@ -763,6 +806,7 @@ if tab == "Modeling":
                 color_labels = classes
             elif coloring_option == "Replicate":
                 color_labels = filtered_groups
+            st.session_state["color_labels"] = color_labels
 
 
             model_results = run_regression_loop(
@@ -859,7 +903,7 @@ if tab == "Modeling":
                         y_pred=result["y_pred_cv"],
                         title=f"CV Predicted vs Actual — {analyte}",
                         sample_ids=result.get("sample_ids"),
-                        class_labels=color_labels,
+                        class_labels=st.session_state.get("color_labels"),
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
