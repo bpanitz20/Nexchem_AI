@@ -78,7 +78,7 @@ def _run_cv_sweep(x, y, param_range, manual_param,
     ``manual_param`` when set, otherwise ``cv_results['optimal_param']``.
     """
     cv_results  = KFold_CV(
-        x, y, PLSRegression(), 'n_components', param_range,
+        x, y, PLSRegression(scale=False), 'n_components', param_range,
         analyte=analyte, groups=groups, model_name='PLS',
         directory=directory, manual_param=manual_param,
         n_folds=n_folds, sample_ids=sample_ids, class_labels=class_labels
@@ -111,7 +111,7 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
     """
     param_name  = 'n_components'
     param_range = list(range(1, max_lv + 1))
-    model       = PLSRegression()
+    model       = PLSRegression(scale=False)
 
     # Variable-selection state — set by block selection hook when active
     axis_arr      = np.asarray(axis)
@@ -133,7 +133,7 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
         # VIP plot.  The selector receives these scores and stores them in the
         # SelectionResult so plot_pls_results can draw on the full axis without
         # gap artefacts from the reduced feature space.
-        pls_prelim = PLSRegression(n_components=final_param)
+        pls_prelim = PLSRegression(n_components=final_param, scale=False)
         pls_prelim.fit(x, y - cv_results['y_mean'])
         vip_scores_full = calculate_vip(pls_prelim)
 
