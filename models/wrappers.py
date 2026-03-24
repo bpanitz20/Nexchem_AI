@@ -212,12 +212,19 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
     # Append variable-selection info to the summary string
     if selection is not None:
         m = selection.metadata
-        summary_string += (
-            f"\n\n**Block variable selection**: {m['n_blocks_selected']} / "
-            f"{m['n_blocks_total']} blocks selected, "
-            f"{selection.n_selected} / {selection.n_total_features} variables retained "
-            f"(block size = {m['block_size_used']}, scoring n_comp = {m['block_scoring_n_components']})"
-        )
+        if selection.method == "vip":
+            summary_string += (
+                f"\n\n**VIP variable selection**: "
+                f"{selection.n_selected} / {selection.n_total_features} variables retained "
+                f"(threshold = {m['threshold']})"
+            )
+        else:  # block
+            summary_string += (
+                f"\n\n**Block variable selection**: {m['n_blocks_selected']} / "
+                f"{m['n_blocks_total']} blocks selected, "
+                f"{selection.n_selected} / {selection.n_total_features} variables retained "
+                f"(block size = {m['block_size_used']}, scoring n_comp = {m['block_scoring_n_components']})"
+            )
     if block_cap_note:
         summary_string += block_cap_note
 

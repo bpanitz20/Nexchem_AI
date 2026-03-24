@@ -735,12 +735,20 @@ if tab == "Modeling":
 
         if model_name == "PLS":
             st.subheader("Variable Selection")
-            use_block = st.checkbox(
-                "iPLS",
-                value=False,
-                help="Bottom-up variable selection with iPLS.",
+            var_select_method = st.selectbox(
+                "Method:",
+                options=["None", "VIP threshold", "iPLS (block)"],
+                help="Select spectral variables before building the final model.",
             )
-            if use_block:
+            if var_select_method == "VIP threshold":
+                vip_threshold = st.slider(
+                    "VIP threshold",
+                    min_value=0.5, max_value=2.0, value=1.0, step=0.05,
+                    help="Retain variables with VIP ≥ threshold. Conventional cutoff is 1.0.",
+                )
+                from models.selectors.vip import VIPSelector
+                selector = VIPSelector(threshold=float(vip_threshold))
+            elif var_select_method == "iPLS (block)":
                 block_size = st.number_input(
                     "Block size (variables per block)",
                     min_value=5, max_value=500, value=100, step=5,
