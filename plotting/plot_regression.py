@@ -137,7 +137,8 @@ def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels
              color='red', linestyle='--', label='Ideal')
 
     slope, intercept = np.polyfit(y_true.ravel(), y_pred.ravel(), 1)
-    plt.plot(y_true, slope * y_true + intercept, 'g--', label='Best Fit')
+    x_line = np.linspace(y_true.min(), y_true.max(), 200)
+    plt.plot(x_line, slope * x_line + intercept, 'g--', label='Best Fit')
 
     plt.xlabel('Actual Values')
     plt.ylabel('Predicted Values')
