@@ -17,7 +17,7 @@ from loaders.raman_loader import load_raman
 import matplotlib.pyplot as plt
 import re
 from plotting.plot_raw import plot_spectra_colored_by_analyte
-from plotting.plot_regression import plot_pred_vs_actual_interactive
+from plotting.plot_regression import plot_pred_vs_actual_interactive, plot_pred_vs_actual_journal
 from preprocessors.raman_preprocess import (
     preprocess_savgol_emsc_mc,
     preprocess_savgol_snv_mc,
@@ -1019,6 +1019,13 @@ if tab == "Prediction":
         help="Fits y_pred = slope × y_true + bias on the prediction set and reports corrected R² and RMSE alongside uncorrected. Requires a Y reference file.",
     )
 
+    plot_style = st.radio(
+        "Plot style:",
+        options=["Standard", "Journal"],
+        horizontal=True,
+        help="Journal style shows prediction set as blue open circles and calibration set as grey open circles. Requires a Y reference file.",
+    )
+
     if st.button("Run Prediction"):
         if pred_zip_file is None:
             st.warning("Please upload a zip file of Raman spectra first.")
@@ -1167,60 +1174,85 @@ if tab == "Prediction":
                         ),
                         apply_slope_bias_correction=apply_correction,
                     )
+
+                    # Overwrite saved plot with journal style if selected and
+                    # reference Y is available (needed for the cal set overlay)
+                    if plot_style == "Journal" and output.get("y_true") is not None:
+                        plot_pred_vs_actual_journal(
+                            y_true_pred=output["y_true"],
+                            y_pred_pred=output["y_pred"],
+                            y_true_cal=result["y_true"],
+                            y_pred_cal=result["y_pred_cal"],
+                            directory=results_dir,
+                            title=f"External Predicted vs. Actual for {analyte} ({model_name})",
+                            filename=f"External_Pred_vs_Actual_{model_name}_{analyte}.png",
+                        )
+                        if output.get("y_pred_corrected") is not None:
+                            plot_pred_vs_actual_journal(
+                                y_true_pred=output["y_true"],
+                                y_pred_pred=output["y_pred_corrected"],
+                                y_true_cal=result["y_true"],
+                                y_pred_cal=result["y_pred_cal"],
+                                directory=results_dir,
+                                title=f"Corrected Predicted vs. Actual for {analyte} ({model_name})",
+                                filename=f"External_Pred_vs_Actual_Corrected_{model_name}_{analyte}.png",
+                            )
+
                     prediction_outputs.append(output)
 
                 st.session_state["prediction_outputs"] = prediction_outputs
 
-                # === Display Results ===
-                st.subheader("📈 Prediction Results")
-                for output in prediction_outputs:
-                    st.markdown(f"### {output['analyte']} ({output['model_name']})")
+    # === Display Results (persists across tab switches) ===
+    if "prediction_outputs" in st.session_state:
+        st.subheader("📈 Prediction Results")
+        for output in st.session_state["prediction_outputs"]:
+            st.markdown(f"### {output['analyte']} ({output['model_name']})")
 
-                    if "r2_pred" in output:
-                        has_correction = output.get("r2_corrected") is not None
-                        if has_correction:
-                            metrics_df = pd.DataFrame({
-                                "": ["Uncorrected", "Corrected"],
-                                "R²": [f"{output['r2_pred']:.4f}", f"{output['r2_corrected']:.4f}"],
-                                "RMSE": [f"{output['rmsep']:.4f}", f"{output['rmse_corrected']:.4f}"],
-                            }).set_index("")
-                            st.table(metrics_df)
-                            st.caption(f"Slope = {output['slope']:.4f}  |  Bias = {output['bias']:.4f}")
-                        else:
-                            st.markdown(f"**R²_pred**: {output['r2_pred']:.4f}  \n**RMSEP**: {output['rmsep']:.4f}")
+            if "r2_pred" in output:
+                has_correction = output.get("r2_corrected") is not None
+                if has_correction:
+                    metrics_df = pd.DataFrame({
+                        "": ["Uncorrected", "Corrected"],
+                        "R²": [f"{output['r2_pred']:.4f}", f"{output['r2_corrected']:.4f}"],
+                        "RMSE": [f"{output['rmsep']:.4f}", f"{output['rmse_corrected']:.4f}"],
+                    }).set_index("")
+                    st.table(metrics_df)
+                    st.caption(f"Slope = {output['slope']:.4f}  |  Bias = {output['bias']:.4f}")
+                else:
+                    st.markdown(f"**R²_pred**: {output['r2_pred']:.4f}  \n**RMSEP**: {output['rmsep']:.4f}")
 
-                    if "csv_path" in output and os.path.exists(output["csv_path"]):
-                        df = pd.read_csv(output["csv_path"])
-                        st.dataframe(df)
+            if "csv_path" in output and os.path.exists(output["csv_path"]):
+                df = pd.read_csv(output["csv_path"])
+                st.dataframe(df)
 
-                    if output.get("y_true") is not None and output.get("y_pred") is not None:
-                        has_correction = output.get("y_pred_corrected") is not None
-                        if has_correction:
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                fig = plot_pred_vs_actual_interactive(
-                                    y_true=output["y_true"],
-                                    y_pred=output["y_pred"],
-                                    title=f"Uncorrected — {output['analyte']}",
-                                    sample_ids=output.get("sample_ids"),
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-                            with col2:
-                                fig = plot_pred_vs_actual_interactive(
-                                    y_true=output["y_true"],
-                                    y_pred=output["y_pred_corrected"],
-                                    title=f"Corrected — {output['analyte']}",
-                                    sample_ids=output.get("sample_ids"),
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            fig = plot_pred_vs_actual_interactive(
-                                y_true=output["y_true"],
-                                y_pred=output["y_pred"],
-                                title=f"Predicted vs Actual — {output['analyte']}",
-                                sample_ids=output.get("sample_ids"),
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
+            if output.get("y_true") is not None and output.get("y_pred") is not None:
+                has_correction = output.get("y_pred_corrected") is not None
+                if has_correction:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        fig = plot_pred_vs_actual_interactive(
+                            y_true=output["y_true"],
+                            y_pred=output["y_pred"],
+                            title=f"Uncorrected — {output['analyte']}",
+                            sample_ids=output.get("sample_ids"),
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    with col2:
+                        fig = plot_pred_vs_actual_interactive(
+                            y_true=output["y_true"],
+                            y_pred=output["y_pred_corrected"],
+                            title=f"Corrected — {output['analyte']}",
+                            sample_ids=output.get("sample_ids"),
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    fig = plot_pred_vs_actual_interactive(
+                        y_true=output["y_true"],
+                        y_pred=output["y_pred"],
+                        title=f"Predicted vs Actual — {output['analyte']}",
+                        sample_ids=output.get("sample_ids"),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
     # === Download Prediction Figures ===
     if "prediction_outputs" in st.session_state:

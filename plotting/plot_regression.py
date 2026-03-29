@@ -348,6 +348,103 @@ def plot_pred_vs_actual_paper(
 
 
 
+def plot_pred_vs_actual_journal(
+    y_true_pred, y_pred_pred,
+    y_true_cal, y_pred_cal,
+    directory, title, filename,
+):
+    """
+    Journal-style predicted vs actual plot.
+
+    Calibration set plotted as grey open circles, prediction set as blue open
+    circles. 1:1 line is solid black; best-fit line (fit to prediction set) is
+    dashed blue. Ticks point inward on all four sides.
+
+    Parameters
+    ----------
+    y_true_pred, y_pred_pred : array-like
+        Reference and predicted values for the external prediction set (blue).
+    y_true_cal, y_pred_cal : array-like
+        Reference and predicted values for the calibration set (grey).
+    directory : str
+    title : str
+    filename : str
+    """
+    y_true_pred = np.asarray(y_true_pred).ravel()
+    y_pred_pred = np.asarray(y_pred_pred).ravel()
+    y_true_cal  = np.asarray(y_true_cal).ravel()
+    y_pred_cal  = np.asarray(y_pred_cal).ravel()
+
+    all_vals = np.concatenate([y_true_pred, y_pred_pred, y_true_cal, y_pred_cal])
+    lo = float(np.nanmin(all_vals))
+    hi = float(np.nanmax(all_vals))
+    pad = (hi - lo) * 0.05
+    lo -= pad
+    hi += pad
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    # Calibration set — light grey open circles (underneath)
+    ax.scatter(
+        y_true_cal, y_pred_cal,
+        s=40,
+        facecolors='none',
+        edgecolors='#c0c0c0',
+        linewidths=0.9,
+        alpha=0.7,
+        label='Calibration',
+        zorder=2,
+    )
+
+    # Prediction set — dark blue open circles (on top)
+    ax.scatter(
+        y_true_pred, y_pred_pred,
+        s=45,
+        facecolors='none',
+        edgecolors='#08306b',
+        linewidths=1.4,
+        alpha=1.0,
+        label='Prediction',
+        zorder=3,
+    )
+
+    # 1:1 line — solid black
+    ax.plot([lo, hi], [lo, hi],
+            color='black', linewidth=1.2, linestyle='-',
+            label='1:1', zorder=1)
+
+    # Best-fit line — dashed blue, fit to prediction set only
+    slope, intercept = np.polyfit(y_true_pred, y_pred_pred, 1)
+    x_line = np.linspace(lo, hi, 200)
+    ax.plot(x_line, slope * x_line + intercept,
+            color='#08306b', linewidth=1.2, linestyle='--',
+            label=f'Fit (slope={slope:.3f})', zorder=1)
+
+    # Axis limits, labels, title
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_xlabel('Actual Values')
+    ax.set_ylabel('Predicted Values')
+    ax.set_title(title)
+
+    # Inward ticks on all four sides
+    ax.tick_params(axis='both', direction='in', top=True, right=True, length=5)
+
+    # All four spines visible
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+
+    ax.legend(loc='upper left', frameon=True, fontsize=9)
+    ax.grid(True, linewidth=0.4, alpha=0.25)
+
+    fig.tight_layout()
+
+    _base = os.path.join(directory, os.path.splitext(filename)[0])
+    fig.savefig(_base + ".png", dpi=300, bbox_inches="tight")
+    fig.savefig(_base + ".pdf", bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_name, analyte, model_name, directory):
     """
     Plot R2 and RMSE curves for calibration and cross-validation.
