@@ -352,6 +352,94 @@ if tab == "Data Loading":
                 mime="application/pdf",
             )
 
+        # === Hold-out Group Split ===
+        st.markdown("---")
+        st.subheader("✂️ Hold-out Group Split")
+
+        # Always use the full Y-block for the UI (before any split is applied)
+        _y_for_split = st.session_state.get("y_block_full", y_df)
+
+        holdout_enabled = st.checkbox(
+            "Enable hold-out group split",
+            value=st.session_state.get("holdout_active", False),
+            help=(
+                "Split the loaded dataset into a training set and a hold-out "
+                "prediction set based on any categorical column in the Y-block "
+                "(e.g. season, batch, site). The hold-out group can then be used "
+                "directly in the Prediction tab without uploading separate files."
+            ),
+        )
+
+        # User just disabled — restore originals
+        if not holdout_enabled and st.session_state.get("holdout_active", False):
+            st.session_state["raw_spectra"] = st.session_state.pop("raw_spectra_full")
+            st.session_state["y_block"] = st.session_state.pop("y_block_full")
+            st.session_state["holdout_active"] = False
+            for _k in ["raw_spectra_holdout", "y_block_holdout", "holdout_group", "holdout_group_col"]:
+                st.session_state.pop(_k, None)
+            st.rerun()
+
+        if holdout_enabled:
+            # Offer all columns that look categorical (object dtype or ≤30 unique values)
+            cat_cols = [
+                col for col in _y_for_split.columns
+                if _y_for_split[col].dtype == object or _y_for_split[col].nunique() <= 30
+            ]
+            if not cat_cols:
+                st.warning("No suitable group columns found in the Y-block (need a text or low-cardinality column).")
+            else:
+                group_col = st.selectbox("Group column:", cat_cols, key="holdout_group_col_select")
+                unique_groups = sorted(_y_for_split[group_col].dropna().unique().tolist(), key=str)
+                holdout_group = st.selectbox("Hold-out group:", unique_groups, key="holdout_group_select")
+
+                n_holdout = int((_y_for_split[group_col] == holdout_group).sum())
+                n_train   = int((_y_for_split[group_col] != holdout_group).sum())
+                st.info(f"Training: **{n_train}** rows | Hold-out: **{n_holdout}** rows")
+
+                if st.button("Apply split"):
+                    holdout_ids = set(_y_for_split[_y_for_split[group_col] == holdout_group].index.astype(str))
+                    train_ids   = set(_y_for_split[_y_for_split[group_col] != holdout_group].index.astype(str))
+
+                    full_spectra = st.session_state.get("raw_spectra_full", st.session_state["raw_spectra"])
+
+                    raw_spectra_train   = {k: v for k, v in full_spectra.items() if str(k) in train_ids}
+                    raw_spectra_holdout = {k: v for k, v in full_spectra.items() if str(k) in holdout_ids}
+
+                    # Keep the group column — the aligner extracts "Class" automatically
+                    # and returns it as class_labels, so it never reaches the model.
+                    y_block_train   = _y_for_split[_y_for_split[group_col] != holdout_group]
+                    y_block_holdout = _y_for_split[_y_for_split[group_col] == holdout_group]
+
+                    # Preserve originals (only on first apply)
+                    if "raw_spectra_full" not in st.session_state:
+                        st.session_state["raw_spectra_full"] = st.session_state["raw_spectra"]
+                    if "y_block_full" not in st.session_state:
+                        st.session_state["y_block_full"] = _y_for_split
+
+                    # Overwrite active datasets with training split
+                    st.session_state["raw_spectra"] = raw_spectra_train
+                    st.session_state["y_block"]     = y_block_train
+
+                    # Store hold-out for Prediction tab
+                    st.session_state["raw_spectra_holdout"] = raw_spectra_holdout
+                    st.session_state["y_block_holdout"]     = y_block_holdout
+
+                    st.session_state["holdout_active"]    = True
+                    st.session_state["holdout_group"]     = holdout_group
+                    st.session_state["holdout_group_col"] = group_col
+
+                    st.success(
+                        f"✅ Split applied — Training: {len(raw_spectra_train)} spectra | "
+                        f"Hold-out ({holdout_group}): {len(raw_spectra_holdout)} spectra"
+                    )
+                    st.rerun()
+
+        if st.session_state.get("holdout_active", False):
+            st.info(
+                f"🔀 Active split — Hold-out group: **{st.session_state['holdout_group']}** "
+                f"(column: **{st.session_state['holdout_group_col']}**)"
+            )
+
 # === TAB 2: Preprocessing ===
 if tab == "Preprocessing":
     if "raw_spectra" not in st.session_state or "y_block" not in st.session_state:
@@ -981,12 +1069,30 @@ def _flatten_preprocessed_to_matrix(preprocessed_dict):
 if tab == "Prediction":
     st.header("Step 4: Predict on External Dataset")
 
-    # === Upload Inputs ===
-    with st.expander("📁 Upload Prediction Spectra (.zip of .spc files)"):
-        pred_zip_file = st.file_uploader("Upload a .zip file of Raman .spc files", type="zip", key="pred_zip")
+    # === Source selection ===
+    _holdout_active = st.session_state.get("holdout_active", False)
+    _holdout_group  = st.session_state.get("holdout_group", "")
 
-    with st.expander("📄 (Optional) Upload Prediction Y-block (Excel with 'ID' column)"):
-        pred_y_file = st.file_uploader("Upload reference Y file (optional)", type="xlsx", key="pred_y")
+    if _holdout_active:
+        _pred_source = st.radio(
+            "Prediction source:",
+            options=["Upload zip", f"Use held-out group: {_holdout_group}"],
+            horizontal=True,
+        )
+        use_holdout = _pred_source.startswith("Use held-out")
+    else:
+        use_holdout = False
+
+    # === Upload Inputs (only when not using holdout) ===
+    if not use_holdout:
+        with st.expander("📁 Upload Prediction Spectra (.zip of .spc files)"):
+            pred_zip_file = st.file_uploader("Upload a .zip file of Raman .spc files", type="zip", key="pred_zip")
+
+        with st.expander("📄 (Optional) Upload Prediction Y-block (Excel with 'ID' column)"):
+            pred_y_file = st.file_uploader("Upload reference Y file (optional)", type="xlsx", key="pred_y")
+    else:
+        pred_zip_file = None
+        pred_y_file   = None
 
     # === Pull training-time choices ===
     trained_key      = st.session_state.get("trained_preprocess_key")
@@ -1027,12 +1133,15 @@ if tab == "Prediction":
     )
 
     if st.button("Run Prediction"):
-        if pred_zip_file is None:
+        if use_holdout:
+            # === Source: held-out group from session state ===
+            pred_sample_spectra = st.session_state["raw_spectra_holdout"]
+        elif pred_zip_file is None:
             st.warning("Please upload a zip file of Raman spectra first.")
+            st.stop()
         else:
-            # === Extract and Load Spectra ===
+            # === Source: uploaded zip ===
             pred_dir = st.session_state["pred_dir"]
-                      
             spectra_dir = os.path.join(pred_dir, "spectra")
             os.makedirs(spectra_dir, exist_ok=True)
 
@@ -1040,6 +1149,11 @@ if tab == "Prediction":
                 zip_ref.extractall(spectra_dir)
 
             pred_sample_spectra, _, _ = load_raman(pred_dir, spectra_dir)
+
+        if True:  # always runs after spectra are ready
+            pred_dir    = st.session_state["pred_dir"]
+            spectra_dir = os.path.join(pred_dir, "spectra")
+            os.makedirs(spectra_dir, exist_ok=True)
 
             # Grouping logic (only for method 3)
             if trained_is_group:
@@ -1091,21 +1205,28 @@ if tab == "Prediction":
                 st.error(f"Unhandled preprocessing key: {trained_key}")
                 st.stop()
 
-            # === Optional Y-block alignment ===
+            # === Y-block alignment ===
             filtered_pred_sample_ids = list(pred_preprocessed.keys())
             Y_pred_true = None
 
             try:
-                if pred_y_file is not None:
+                # Resolve Y source: holdout session state or uploaded file
+                if use_holdout:
+                    y_pred_df = st.session_state["y_block_holdout"].copy()
+                    # Index is already set to ID
+                    _has_y = True
+                elif pred_y_file is not None:
                     y_pred_df = pd.read_excel(pred_y_file)
                     if "ID" not in y_pred_df.columns:
                         st.warning("Prediction Y file must contain an 'ID' column.")
                         st.stop()
-
-                    # normalize ID strings
                     y_pred_df["ID"] = y_pred_df["ID"].astype(str).str.strip()
                     y_pred_df.set_index("ID", inplace=True)
+                    _has_y = True
+                else:
+                    _has_y = False
 
+                if _has_y:
                     if trained_is_group:
                         # Group Y the SAME way as training (prefix before first "-")
                         num_cols = y_pred_df.select_dtypes(include=[np.number]).columns
