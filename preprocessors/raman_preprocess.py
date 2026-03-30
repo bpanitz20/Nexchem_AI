@@ -3,9 +3,6 @@
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-from ramanspy.preprocessing.denoise import SavGol
-from sklearn.pipeline import make_pipeline
-import chemometrics as cm
 import ramanspy
 from ramanspy.preprocessing.misc import Cropper
 from scipy.signal import savgol_filter
@@ -44,6 +41,29 @@ def mean_center(X):
     """
     mean_spectrum = np.mean(X, axis=0, keepdims=True)
     return X - mean_spectrum
+
+
+def _als_baseline(y, lam=1e5, p=0.001, niter=10):
+    """Asymmetric Least Squares baseline correction (Eilers & Boelens 2005).
+
+    Parameters
+    ----------
+    y    : 1-D array — spectrum
+    lam  : float     — smoothness (log₁₀ scale typical: 5.8 → lam≈6.3e5)
+    p    : float     — asymmetry weight (0 < p < 1; small p → baseline below peaks)
+    niter: int       — number of iterations
+    """
+    from scipy import sparse
+    from scipy.sparse.linalg import spsolve
+    L = y.size
+    D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L - 2))
+    D = lam * (D @ D.T)
+    w = np.ones(L)
+    for _ in range(niter):
+        W = sparse.diags(w, 0)
+        z = spsolve(W + D, w * y)
+        w = p * (y > z) + (1 - p) * (y < z)
+    return z
 
 def _compute_preprocess_savgol_snv_mc(sample_spectra, crop_region, derivative_order, use_state):
     """Pure computation: Crop → SavGol-deriv → SNVStep → GlobalMeanCenterStep. No I/O."""
@@ -129,221 +149,286 @@ def preprocess_savgol_snv_mc(sample_spectra, spectra_dir, crop_region=DEFAULT_CR
     
 
 
-def _compute_preprocess_savgol_emsc_mc(sample_spectra, crop_region, savgol_window,
-                                        savgol_polyorder, emsc_p_order, emsc_asym_factor,
-                                        deriv_order, use_state):
-    """Pure computation: Crop → SavGol → EMSC → GlobalMeanCenterStep. No I/O."""
-    import copy
+def _poly_baseline_lieber(spectrum, axis, order=4, niter=100):
+    """Iterative polynomial baseline (Lieber & Mahadevan-Jansen 2005).
 
-    spectra_copy = copy.deepcopy(sample_spectra)
+    Iteratively fits a polynomial constrained to remain <= the spectrum,
+    yielding a conservative fluorescence / scatter baseline estimate.
+    """
+    x = 2.0 * (axis - axis.min()) / (axis.max() - axis.min()) - 1.0  # normalise to [-1, 1]
+    y = spectrum.copy().astype(float)
+    for _ in range(niter):
+        coeffs = np.polyfit(x, y, order)
+        poly = np.polyval(coeffs, x)
+        y = np.minimum(spectrum, poly)  # constrain below original spectrum
+    coeffs = np.polyfit(x, y, order)
+    return np.polyval(coeffs, x)
+
+
+def _emsc_correct_ref(spectra_matrix, reference, axis, p_order=6):
+    """Extended Multiplicative Scatter Correction with an explicit reference spectrum.
+
+    For each spectrum *s*, solves the linear system:
+        s ≈ a·r + b₀ + b₁·x + b₂·x² + … + bₚ·xᵖ
+    Corrected spectrum: (s − polynomial_part) / a
+
+    Parameters
+    ----------
+    spectra_matrix : ndarray, shape (n, m)
+    reference      : ndarray, shape (m,)  — target reference spectrum
+    axis           : ndarray, shape (m,)  — spectral axis
+    p_order        : int                  — polynomial extension order
+
+    Returns
+    -------
+    corrected : ndarray, shape (n, m)
+    """
+    axis = np.asarray(axis, dtype=float)
+    x = 2.0 * (axis - axis.min()) / (axis.max() - axis.min()) - 1.0
+    poly_terms = np.column_stack([x ** k for k in range(p_order + 1)])  # (m, p_order+1)
+    D = np.column_stack([reference, poly_terms])                         # (m, p_order+2)
+
+    corrected = np.zeros_like(spectra_matrix, dtype=float)
+    for i, s in enumerate(spectra_matrix):
+        coeffs, _, _, _ = np.linalg.lstsq(D, s, rcond=None)
+        a = coeffs[0]
+        poly_part = poly_terms @ coeffs[1:]
+        corrected[i] = (s - poly_part) / a if a != 0.0 else s - poly_part
+    return corrected
+
+
+def _compute_ref_baseline(spectrum, axis, method="lieber",
+                           poly_ref_order=4, als_lam=6.31e5, als_p=0.01):
+    """Apply baseline correction to a single reference spectrum.
+
+    method : "lieber" — iterative polynomial (Lieber & Mahadevan-Jansen 2005)
+             "als"    — Asymmetric Least Squares (Eilers & Boelens 2005)
+    Returns the baseline-corrected spectrum (spectrum − baseline).
+    """
+    if method == "als":
+        bl = _als_baseline(spectrum, lam=als_lam, p=als_p)
+    else:
+        bl = _poly_baseline_lieber(spectrum, axis, order=poly_ref_order)
+    return spectrum - bl
+
+
+def _build_reference_map(spectral_matrix, group_ids_bank, sample_groups, axis,
+                          poly_ref_order, reference_mode, class_lookup, use_state,
+                          ref_baseline_method="lieber", als_lam=6.31e5, als_p=0.01):
+    """Return ({gid: reference_array}, state_extras_dict) for EMSC correction.
+
+    For sample mode the reference is always computed fresh (training and prediction).
+    For dataset/class modes, use_state is consulted first (prediction path).
+    state_extras_dict contains what should be saved into the preprocessing state.
+    """
+    def _bl(spectrum):
+        return _compute_ref_baseline(spectrum, axis, method=ref_baseline_method,
+                                     poly_ref_order=poly_ref_order,
+                                     als_lam=als_lam, als_p=als_p)
+
+    # --- Sample mode: always fresh, nothing extra to store ---
+    if reference_mode == "sample":
+        group_spectra = {}
+        for arr, gid in zip(spectral_matrix, group_ids_bank):
+            group_spectra.setdefault(gid, []).append(arr)
+        ref_map = {}
+        for gid, arrs in group_spectra.items():
+            ref_map[gid] = _bl(np.mean(arrs, axis=0))
+        return ref_map, {}
+
+    # --- Dataset / class modes: check use_state first (prediction path) ---
+    if use_state is not None:
+        if reference_mode == "dataset" and "emsc_reference" in use_state:
+            ref = np.asarray(use_state["emsc_reference"], dtype=float)
+            return {gid: ref for gid in sample_groups}, {}
+        if reference_mode == "class" and "class_references" in use_state:
+            stored = {k: np.asarray(v, dtype=float)
+                      for k, v in use_state["class_references"].items()}
+            fallback = next(iter(stored.values()))
+            ref_map = {}
+            for gid in sample_groups:
+                cls = (class_lookup or {}).get(str(gid))
+                ref_map[gid] = stored.get(cls, fallback)
+            return ref_map, {}
+
+    # --- Training path: compute fresh ---
+    if reference_mode == "dataset":
+        ref = _bl(np.mean(spectral_matrix, axis=0))
+        return {gid: ref for gid in sample_groups}, {"emsc_reference": ref}
+
+    if reference_mode == "class":
+        class_spectra = {}
+        for arr, gid in zip(spectral_matrix, group_ids_bank):
+            cls = (class_lookup or {}).get(str(gid), "__unknown__")
+            class_spectra.setdefault(cls, []).append(arr)
+        class_refs = {}
+        for cls, arrs in class_spectra.items():
+            class_refs[cls] = _bl(np.mean(arrs, axis=0))
+        fallback = next(iter(class_refs.values()))
+        ref_map = {}
+        for gid in sample_groups:
+            cls = (class_lookup or {}).get(str(gid), "__unknown__")
+            ref_map[gid] = class_refs.get(cls, fallback)
+        return ref_map, {"class_references": class_refs}
+
+    raise ValueError(f"Unknown reference_mode: {reference_mode!r}")
+
+
+def _compute_group_preprocess_ref_emsc_mc(sample_spectra, sample_groups, crop_region,
+                                           poly_ref_order, emsc_p_order, use_state,
+                                           reference_mode="dataset", class_lookup=None,
+                                           ref_baseline_method="lieber",
+                                           als_lam=6.31e5, als_p=0.01,
+                                           apply_sg_smooth=False, sg_window=9, sg_polyorder=2,
+                                           apply_mean_center=True):
+    """Crop → (optional SG smooth) → Reference-EMSC → (optional GlobalMeanCenter) →
+    Group Average.  No I/O."""
     row_bank = []
-    axis_ref = None
-    cropped_spectra_dict = {}   # {sample_name: [Spectrum, ...]} for diagnostic plots
+    group_ids_bank = []
+    cropped_axis = None
 
     cropper = Cropper(region=crop_region)
-    savgol = SavGol(window_length=savgol_window, polyorder=savgol_polyorder, deriv=deriv_order)
-    emsc_pipeline = make_pipeline(
-        cm.Emsc(p_order=emsc_p_order, normalize=False, algorithm='als', asym_factor=emsc_asym_factor)
-    )
-
-    for sample_name, spectra in spectra_copy.items():
-        cropped_spectra = [cropper.apply(spectrum) for spectrum in spectra]
-        if axis_ref is None:
-            axis_ref = cropped_spectra[0].spectral_axis
-        cropped_axis = axis_ref
-        cropped_spectra_dict[sample_name] = cropped_spectra
-
-        smoothed_spectra = savgol.apply(cropped_spectra)
-        spectral_matrix = np.array([s.spectral_data for s in smoothed_spectra])
-        emsc_corrected = emsc_pipeline.fit_transform(spectral_matrix)
-
-        final_spectra = []
-        for i, data in enumerate(emsc_corrected):
-            final_spectra.append(ramanspy.Spectrum(data, cropped_axis))
-            row_bank.append(data)
-        spectra_copy[sample_name] = final_spectra
-
-    X = np.vstack(row_bank)
-    mc_step = GlobalMeanCenterStep()
-    if use_state is not None and "mean_spectrum" in use_state:
-        mc_step.mean_ = np.asarray(use_state["mean_spectrum"])
-        X_mc = mc_step.transform(X)
-    else:
-        X_mc = mc_step.fit_transform(X)
-
-    k = 0
-    for sample_name, spectra in spectra_copy.items():
-        for j in range(len(spectra)):
-            spectra[j].spectral_data = X_mc[k]
-            k += 1
-
-    return spectra_copy, axis_ref, mc_step, cropped_spectra_dict
-
-
-def plot_preprocess_results_savgol_emsc_mc(spectra_copy, cropped_spectra_dict, spectra_dir):
-    """Save per-sample cropped, EMSC+MC, and overlay diagnostic plots."""
-    os.makedirs(spectra_dir, exist_ok=True)
-
-    for sample_name, cropped_spectra in cropped_spectra_dict.items():
-        plt.figure(figsize=(8, 5))
-        for spec in cropped_spectra:
-            plt.plot(spec.spectral_axis, spec.spectral_data, color="blue", alpha=0.4)
-        plt.title(f"Cropped Spectra: {sample_name}")
-        plt.xlabel("Raman Shift (cm⁻¹)")
-        plt.ylabel("Intensity")
-        plt.savefig(os.path.join(spectra_dir, f"{sample_name}_Cropped.png"), dpi=300, bbox_inches="tight")
-        plt.close()
-
-    for sample_name, spectra in spectra_copy.items():
-        plt.figure(figsize=(8, 5))
-        for spec in spectra:
-            plt.plot(spec.spectral_axis, spec.spectral_data, color="red", alpha=0.8)
-        plt.title(f"EMSC + Global Mean Centered: {sample_name}")
-        plt.xlabel("Raman Shift (cm⁻¹)")
-        plt.ylabel("Intensity")
-        plt.savefig(os.path.join(spectra_dir, f"{sample_name}_EMSCpreprocessed.png"), dpi=300, bbox_inches="tight")
-        plt.close()
-
-    plt.figure(figsize=(8, 5))
-    for sample_name, spectra in spectra_copy.items():
-        for s in spectra:
-            plt.plot(s.spectral_axis, s.spectral_data, alpha=0.6)
-    plt.title("Overlay of All Preprocessed Spectra (Global Mean-Centered)")
-    plt.xlabel("Raman Shift (cm⁻¹)")
-    plt.ylabel("Intensity")
-    plt.savefig(os.path.join(spectra_dir, "Overlay_Preprocessed.png"), dpi=300, bbox_inches="tight")
-    plt.close()
-
-
-def preprocess_savgol_emsc_mc(sample_spectra, spectra_dir, crop_region=(500, 1800),
-                               savgol_window=13, savgol_polyorder=2, emsc_p_order=2,
-                               emsc_asym_factor=0.1, deriv_order=1,
-                               return_state=False, use_state=None):
-    """
-    Preprocess Raman spectra with: Crop → SavGol → EMSC → Global Mean-Center.
-    Returns:
-        spectra_copy (dict), cropped_axis
-    """
-    spectra_copy, axis_ref, mc_step, cropped_spectra_dict = _compute_preprocess_savgol_emsc_mc(
-        sample_spectra, crop_region, savgol_window, savgol_polyorder,
-        emsc_p_order, emsc_asym_factor, deriv_order, use_state)
-    plot_preprocess_results_savgol_emsc_mc(spectra_copy, cropped_spectra_dict, spectra_dir)
-    if return_state:
-        return spectra_copy, axis_ref, {"mean_spectrum": mc_step.mean_}
-    return spectra_copy, axis_ref
-
-
-
-
-def _compute_group_preprocess_savgol_emsc_mc(sample_spectra, sample_groups, crop_region,
-                                              emsc_p_order, emsc_asym_factor, deriv_order,
-                                              use_state):
-    """Pure computation: Crop → SavGol → EMSC → GlobalMeanCenterStep → Group Average. No I/O."""
-    group_avg_spectra = {}
-    group_replicates = {}
-    cropped_axis = None
-    row_bank = []
-    idx_bank = []
 
     for group_id, sample_ids in sample_groups.items():
         for sid in sorted(sample_ids):
             spectra = sample_spectra.get(sid)
             if not spectra:
-                print(f"⚠️ Sample '{sid}' missing or has no spectra. Skipping.")
+                print(f"⚠️ Sample '{sid}' missing or empty. Skipping.")
                 continue
             for spectrum in spectra:
-                cropper = Cropper(region=crop_region)
                 cropped = cropper.apply(spectrum)
                 if cropped_axis is None:
                     cropped_axis = cropped.spectral_axis
-                savgol = SavGol(window_length=9, polyorder=2, deriv=deriv_order)
-                smoothed = savgol.apply([cropped])[0]
-                row_bank.append(smoothed.spectral_data)
-                idx_bank.append(group_id)
+                y = cropped.spectral_data.copy()
+                # Optional SavGol smoothing (deriv=0) before EMSC
+                if apply_sg_smooth:
+                    wl = sg_window if sg_window % 2 == 1 else sg_window + 1
+                    wl = max(wl, sg_polyorder + 1)
+                    y = savgol_filter(y, window_length=wl, polyorder=sg_polyorder, deriv=0)
+                row_bank.append(y)
+                group_ids_bank.append(group_id)
 
     if not row_bank:
-        return {}, cropped_axis, {}, {}, None
+        return {}, cropped_axis, {}, None, {}
 
-    spectral_matrix = np.array(row_bank)
-    pipeline = make_pipeline(
-        cm.Emsc(p_order=emsc_p_order, background=None, normalize=False,
-                algorithm='als', asym_factor=emsc_asym_factor)
-    )
-    emsc_corrected = pipeline.fit_transform(spectral_matrix)
+    spectral_matrix = np.array(row_bank, dtype=float)
+    axis = np.asarray(cropped_axis, dtype=float)
 
-    mc_step = GlobalMeanCenterStep()
-    if use_state is not None and "mean_spectrum" in use_state:
-        mc_step.mean_ = np.asarray(use_state["mean_spectrum"])
-        emsc_centered = mc_step.transform(emsc_corrected)
+    # Build per-group reference map
+    reference_map, state_extras = _build_reference_map(
+        spectral_matrix, group_ids_bank, sample_groups, axis,
+        poly_ref_order, reference_mode, class_lookup, use_state,
+        ref_baseline_method=ref_baseline_method, als_lam=als_lam, als_p=als_p)
+
+    # EMSC correction — each spectrum corrected with its group's reference
+    emsc_corrected = np.zeros_like(spectral_matrix)
+    for i, (s, gid) in enumerate(zip(spectral_matrix, group_ids_bank)):
+        emsc_corrected[i] = _emsc_correct_ref(
+            s[np.newaxis], reference_map[gid], axis, p_order=emsc_p_order)[0]
+
+    # Optional global mean-centering
+    mc_step = GlobalMeanCenterStep() if apply_mean_center else None
+    if apply_mean_center:
+        if use_state is not None and "mean_spectrum" in use_state:
+            mc_step.mean_ = np.asarray(use_state["mean_spectrum"], dtype=float)
+            X_out = mc_step.transform(emsc_corrected)
+        else:
+            X_out = mc_step.fit_transform(emsc_corrected)
     else:
-        emsc_centered = mc_step.fit_transform(emsc_corrected)
+        X_out = emsc_corrected
 
-    group_data_temp = {gid: [] for gid in sample_groups.keys()}
-    for y, gid in zip(emsc_centered, idx_bank):
-        group_data_temp[gid].append(y)
+    # Group average
+    grouped_temp = {gid: [] for gid in sample_groups.keys()}
+    for y_row, gid in zip(X_out, group_ids_bank):
+        grouped_temp[gid].append(y_row)
 
-    for group_id, spectra_arrs in group_data_temp.items():
-        if not spectra_arrs:
+    group_avg_spectra = {}
+    for gid, arr_list in grouped_temp.items():
+        if not arr_list:
             continue
-        group_array = np.array(spectra_arrs)
-        group_avg = np.mean(group_array, axis=0)
-        group_avg_spectra[group_id] = [Spectrum(group_avg, cropped_axis)]
-        group_replicates[group_id] = [Spectrum(y, cropped_axis) for y in group_array]
+        arr = np.vstack(arr_list)
+        group_avg_spectra[gid] = Spectrum(np.mean(arr, axis=0), cropped_axis)
 
-    return group_avg_spectra, cropped_axis, group_replicates, group_data_temp, mc_step
+    return group_avg_spectra, cropped_axis, grouped_temp, mc_step, state_extras
 
 
-def plot_preprocess_results_group_savgol_emsc_mc(group_data_temp, group_avg_spectra,
-                                                  cropped_axis, spectra_dir):
+def plot_preprocess_results_group_ref_emsc_mc(grouped_temp, group_avg_spectra,
+                                               cropped_axis, spectra_dir):
     """Save per-group replicate + average diagnostic plots. Returns group_plot_dict."""
     os.makedirs(spectra_dir, exist_ok=True)
     group_plot_dict = {}
 
-    for group_id, spectra_arrs in group_data_temp.items():
-        if not spectra_arrs:
+    for gid, arr_list in grouped_temp.items():
+        if not arr_list:
             continue
-        group_array = np.array(spectra_arrs)
-        avg_spectrum = group_avg_spectra.get(group_id)
-        group_avg = avg_spectrum[0].spectral_data if avg_spectrum else np.mean(group_array, axis=0)
+        arr = np.vstack(arr_list)
+        avg_spectrum = group_avg_spectra.get(gid)
+        avg = avg_spectrum.spectral_data if avg_spectrum is not None else np.mean(arr, axis=0)
 
         fig, ax = plt.subplots(figsize=(8, 5))
-        for i, y in enumerate(group_array):
-            ax.plot(cropped_axis, y, alpha=0.3, label=f"{group_id}-{i+1}")
-        ax.plot(cropped_axis, group_avg, color="black", linewidth=2, label=f"{group_id} Avg")
-        ax.set_title(f"Group {group_id} - SavGol Deriv + EMSC + Global Mean Centered")
+        for i, y_proc in enumerate(arr):
+            ax.plot(cropped_axis, y_proc, alpha=0.3)
+        ax.plot(cropped_axis, avg, color="black", linewidth=2, label=f"{gid} Avg")
+        ax.set_title(f"{gid} – Reference-EMSC + Global Mean-Centered")
         ax.set_xlabel("Raman Shift (cm⁻¹)")
         ax.set_ylabel("Intensity")
         ax.legend()
-        fig.savefig(os.path.join(spectra_dir, f"{group_id}_emsc_avg.png"), dpi=300, bbox_inches="tight")
+        fig.savefig(os.path.join(spectra_dir, f"{gid}_ref_emsc_avg.png"),
+                    dpi=300, bbox_inches="tight")
+        group_plot_dict[gid] = fig
         plt.close(fig)
-        group_plot_dict[group_id] = fig
 
     return group_plot_dict
 
 
-def group_preprocess_savgol_emsc_mc(sample_spectra, sample_groups, spectra_dir,
-                                    crop_region=(500, 1800),
-                                    emsc_p_order=6, emsc_asym_factor=0.1,
-                                    deriv_order=1,
-                                    return_state=False, use_state=None):
+def group_preprocess_ref_emsc_mc(sample_spectra, sample_groups, spectra_dir,
+                                  crop_region=DEFAULT_CROP_REGION,
+                                  poly_ref_order=4, emsc_p_order=6,
+                                  reference_mode="dataset", class_lookup=None,
+                                  ref_baseline_method="lieber",
+                                  als_lam=6.31e5, als_p=0.01,
+                                  apply_sg_smooth=False, sg_window=9, sg_polyorder=2,
+                                  apply_mean_center=True,
+                                  return_state=False, use_state=None):
     """
-    Group-level preprocessing: Crop → SavGol-deriv → EMSC → Global Mean-Center → Group Average.
+    Group-level preprocessing: Crop → Reference-EMSC → Global Mean-Center → Group Average.
+
+    The EMSC reference spectrum is computed according to ``reference_mode``:
+      - ``"dataset"``  — single reference from the global mean of all replicates (default)
+      - ``"class"``    — one reference per class label (requires ``class_lookup`` dict)
+      - ``"sample"``   — one reference per sample group (computed fresh each time)
+
+    The reference is the group mean with a Lieber polynomial baseline removed
+    (order ``poly_ref_order``). EMSC is solved via OLS with a ``emsc_p_order``-degree
+    polynomial extension (Liland, 2016).
+
+    Supports:
+      - return_state=True  → returns state dict with mean_spectrum + reference(s)
+      - use_state={…}      → reuses training reference and mean for prediction sets
     """
-    group_avg_spectra, cropped_axis, group_replicates, group_data_temp, mc_step = \
-        _compute_group_preprocess_savgol_emsc_mc(
+    group_avg_spectra, cropped_axis, grouped_temp, mc_step, state_extras = \
+        _compute_group_preprocess_ref_emsc_mc(
             sample_spectra, sample_groups, crop_region,
-            emsc_p_order, emsc_asym_factor, deriv_order, use_state)
+            poly_ref_order, emsc_p_order, use_state,
+            reference_mode=reference_mode, class_lookup=class_lookup,
+            ref_baseline_method=ref_baseline_method,
+            als_lam=als_lam, als_p=als_p,
+            apply_sg_smooth=apply_sg_smooth, sg_window=sg_window, sg_polyorder=sg_polyorder,
+            apply_mean_center=apply_mean_center)
 
-    if mc_step is None:
-        return {}, cropped_axis, {}, {}
+    if not group_avg_spectra:
+        return {}, cropped_axis, {}
 
-    group_plot_dict = plot_preprocess_results_group_savgol_emsc_mc(
-        group_data_temp, group_avg_spectra, cropped_axis, spectra_dir)
+    group_plot_dict = plot_preprocess_results_group_ref_emsc_mc(
+        grouped_temp, group_avg_spectra, cropped_axis, spectra_dir)
 
     if return_state:
-        return group_avg_spectra, cropped_axis, group_replicates, group_plot_dict, \
-               {"mean_spectrum": mc_step.mean_}
-    return group_avg_spectra, cropped_axis, group_replicates, group_plot_dict
+        full_state = {"emsc_ref_mode": reference_mode}
+        if mc_step is not None:
+            full_state["mean_spectrum"] = mc_step.mean_
+        full_state.update(state_extras)
+        return group_avg_spectra, cropped_axis, group_plot_dict, full_state
+    return group_avg_spectra, cropped_axis, group_plot_dict
 
 
 def _compute_group_preprocess_savgol_snv_mc(sample_spectra, sample_groups, crop_region,
@@ -568,21 +653,6 @@ def _compute_preprocess_asls_savgol_snv(sample_spectra, crop_region, asls_lambda
                                          asls_p, sg_window, sg_polyorder):
     """Pure computation: Crop → AsLS-baseline → SavGol-smooth → SNVStep. No I/O."""
     import copy
-    from scipy import sparse
-    from scipy.sparse.linalg import spsolve
-
-    def asls_baseline(y, lam=1e5, p=0.001, niter=10):
-        """Asymmetric Least Squares baseline correction. Eilers & Boelens (2005)."""
-        L = y.size
-        D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
-        D = lam * (D @ D.T)
-        w = np.ones(L)
-        for _ in range(niter):
-            W = sparse.diags(w, 0)
-            Z = W + D
-            z = spsolve(Z, w * y)
-            w = p * (y > z) + (1 - p) * (y < z)
-        return z
 
     spectra_copy = copy.deepcopy(sample_spectra)
     cropper = Cropper(region=crop_region)
@@ -596,7 +666,7 @@ def _compute_preprocess_asls_savgol_snv(sample_spectra, crop_region, asls_lambda
             if axis_ref is None:
                 axis_ref = cropped.spectral_axis
             y = cropped.spectral_data
-            baseline = asls_baseline(y, lam=asls_lambda, p=asls_p)
+            baseline = _als_baseline(y, lam=asls_lambda, p=asls_p)
             y_corr = y - baseline
             wl = min(sg_window, len(y_corr) if len(y_corr) % 2 == 1 else len(y_corr) - 1)
             if wl < 3:
@@ -691,7 +761,5 @@ def preprocess_asls_savgol_snv(
 # Backward-compatibility aliases — old names are preserved; do not remove yet
 # ---------------------------------------------------------------------------
 preprocess_pipeline_2        = preprocess_savgol_snv_mc
-preprocess_pipeline_1        = preprocess_savgol_emsc_mc
-group_preprocess             = group_preprocess_savgol_emsc_mc
 group_preprocess_2           = group_preprocess_savgol_snv_mc
 preprocess_pipeline_AsLS_SNV = preprocess_asls_savgol_snv

@@ -19,10 +19,9 @@ import re
 from plotting.plot_raw import plot_spectra_colored_by_analyte
 from plotting.plot_regression import plot_pred_vs_actual_interactive, plot_pred_vs_actual_journal
 from preprocessors.raman_preprocess import (
-    preprocess_savgol_emsc_mc,
     preprocess_savgol_snv_mc,
-    group_preprocess_savgol_emsc_mc,
     group_preprocess_savgol_snv_mc,
+    group_preprocess_ref_emsc_mc,
     avg_y_block,
     preprocess_none,
     preprocess_asls_savgol_snv,
@@ -39,7 +38,7 @@ from utils.pdf_export import figures_to_pdf_bytes, image_paths_to_pdf_bytes, pdf
 PREPROCESS_OPTIONS = {
     "1. Savgol-SNV-MeanCenter": preprocess_savgol_snv_mc,
     "2. Baseline-Smooth-SNV": preprocess_asls_savgol_snv,
-    "3. Average Replicates: Savgol-SNV-MeanCenter": group_preprocess_savgol_snv_mc,
+    "3. Average Replicates: EMSC": group_preprocess_ref_emsc_mc,
     "4. None": preprocess_none,
 }
 
@@ -458,9 +457,14 @@ if tab == "Preprocessing":
 
         # === Method-Specific parameters ===
         deriv_order = None
-        if selected_method in ["1. Savgol-SNV-MeanCenter",
-                               "3. Average Replicates: Savgol-SNV-MeanCenter"]:
+        avg_replicates = False
+        if selected_method == "1. Savgol-SNV-MeanCenter":
             deriv_order = st.selectbox("Derivative order", options=[0, 1, 2], index=1)
+            avg_replicates = st.checkbox(
+                "Average replicates",
+                value=False,
+                help="Group replicates by sample prefix (before '-') and average after preprocessing."
+            )
 
         # AsLS/SavGol parameters (optional)
         if selected_method == "2. Baseline-Smooth-SNV":
@@ -468,6 +472,86 @@ if tab == "Preprocessing":
             asls_p = st.number_input("AsLS asymmetry p", value=0.001, format="%.3f")
             sg_window = st.number_input("Savitzky–Golay window length", value=13)
             sg_polyorder = st.number_input("Savitzky–Golay polynomial order", value=2)
+
+        # Reference-EMSC parameters
+        if selected_method == "3. Average Replicates: EMSC":
+            emsc_p_order = st.number_input(
+                "EMSC polynomial extension order", value=6, min_value=0, max_value=10,
+                help="Degree of polynomial added to the EMSC design matrix (Liland 2016).")
+
+            _ref_mode_label = st.selectbox(
+                "EMSC reference mode",
+                options=["Whole dataset", "By class", "By sample"],
+                help=(
+                    "**Whole dataset** — one reference from the global mean of all replicates. "
+                    "**By class** — one reference per class (e.g. season); requires a class column in the Y-block. "
+                    "**By sample** — one reference per biological sample (mean of its own replicates); always computed fresh."
+                ),
+            )
+            _ref_mode_map = {"Whole dataset": "dataset", "By class": "class", "By sample": "sample"}
+            emsc_ref_mode = _ref_mode_map[_ref_mode_label]
+
+            emsc_class_col = None
+            if emsc_ref_mode == "class":
+                _y_for_emsc = st.session_state.get("y_block")
+                if _y_for_emsc is not None:
+                    _cat_cols = list(_y_for_emsc.select_dtypes(exclude=[np.number]).columns)
+                    if not _cat_cols:
+                        _cat_cols = list(_y_for_emsc.columns)
+                    emsc_class_col = st.selectbox(
+                        "Class column (used to group reference spectra):",
+                        _cat_cols,
+                        help="Each unique value in this column gets its own EMSC reference spectrum."
+                    )
+                else:
+                    st.warning("Y-block not loaded — cannot use 'By class' mode.")
+                    emsc_ref_mode = "dataset"
+
+            # Reference baseline method
+            _bl_method_label = st.selectbox(
+                "Reference baseline correction method",
+                options=["Lieber polynomial", "ALS (Asymmetric Least Squares)"],
+                help=(
+                    "**Lieber** — iterative polynomial constrained ≤ spectrum; best for fluorescence-heavy backgrounds. "
+                    "**ALS** — asymmetric least-squares (Eilers & Boelens 2005); better for smooth scatter baselines in biological Raman."
+                ),
+            )
+            emsc_bl_method = "lieber" if _bl_method_label == "Lieber polynomial" else "als"
+
+            poly_ref_order = 4
+            emsc_als_lam = 6.31e5
+            emsc_als_p = 0.01
+            if emsc_bl_method == "lieber":
+                poly_ref_order = st.number_input(
+                    "Polynomial order for reference baseline", value=4, min_value=1, max_value=10,
+                    help="Order of iterative polynomial fit applied to the group mean to produce the EMSC reference spectrum.")
+            else:
+                emsc_als_lam = st.number_input(
+                    "ALS smoothness λ", value=6.31e5, format="%.2e",
+                    help="Smoothness parameter (λ). Paper 1 equivalent: 10^5.8 ≈ 6.3×10⁵.")
+                emsc_als_p = st.number_input(
+                    "ALS asymmetry p", value=0.01, format="%.4f",
+                    help="Asymmetric weight (0 < p < 1). Paper 1 used p = 0.01.")
+
+            # SavGol smoothing before EMSC
+            apply_sg_smooth = st.checkbox(
+                "Apply Savitzky–Golay smoothing before EMSC",
+                value=False,
+                help="Smooths each replicate (deriv=0) before fitting the EMSC model, "
+                     "stabilising the scatter coefficient estimate. Paper 1 used window=9, poly=2."
+            )
+            emsc_sg_window = 9
+            emsc_sg_polyorder = 2
+            if apply_sg_smooth:
+                emsc_sg_window = st.number_input("SG window length", value=9, min_value=3)
+                emsc_sg_polyorder = st.number_input("SG polynomial order", value=2, min_value=1)
+
+            # Mean-centering toggle
+            apply_mean_center = st.checkbox(
+                "Apply global mean-centering after EMSC",
+                value=True,
+                help="Subtracts the dataset-wide mean spectrum. Required for PLS; optional for other models."
+            )
 
         run_button = st.button("Run Preprocessing")
 
@@ -478,13 +562,29 @@ if tab == "Preprocessing":
 
             # === SELECTED PIPELINE ===
             if selected_method == "1. Savgol-SNV-MeanCenter":
-                preprocessed_spectra, cropped_axis, preproc_state = preprocess_savgol_snv_mc(
-                    sample_spectra, spectra_dir,
-                    crop_region=crop_region,
-                    derivative_order=deriv_order,
-                    return_state=True
-                )
+                if avg_replicates:
+                    sample_groups = defaultdict(list)
+                    for sid in sample_spectra.keys():
+                        gid = sid.split("-")[0]
+                        sample_groups[gid].append(sid)
+                    preprocessed_spectra, cropped_axis, group_plot_dict, preproc_state = group_preprocess_savgol_snv_mc(
+                        sample_spectra, sample_groups, spectra_dir,
+                        crop_region=crop_region,
+                        derivative_order=deriv_order,
+                        return_state=True
+                    )
+                    st.session_state["group_plots"] = group_plot_dict
+                    st.session_state["y_block_grouped"] = avg_y_block(st.session_state["y_block"])
+                    st.session_state["sample_groups"] = sample_groups
+                else:
+                    preprocessed_spectra, cropped_axis, preproc_state = preprocess_savgol_snv_mc(
+                        sample_spectra, spectra_dir,
+                        crop_region=crop_region,
+                        derivative_order=deriv_order,
+                        return_state=True
+                    )
                 st.session_state["preproc_state"] = preproc_state
+                st.session_state["trained_avg_replicates"] = avg_replicates
 
             elif selected_method == "2. Baseline-Smooth-SNV":
                 preprocessed_spectra, cropped_axis = preprocess_asls_savgol_snv(
@@ -502,30 +602,59 @@ if tab == "Preprocessing":
                 st.session_state["trained_sg_window"] = sg_window
                 st.session_state["trained_sg_polyorder"] = sg_polyorder
 
-            elif selected_method == "3. Average Replicates: Savgol-SNV-MeanCenter":
-                # Create group dict
-                sample_groups = defaultdict(list)
-                for sid in sample_spectra.keys():
-                    gid = sid.split("-")[0]
-                    sample_groups[gid].append(sid)
-
-                preprocessed_spectra, cropped_axis, group_plot_dict, preproc_state = group_preprocess_savgol_snv_mc(
-                    sample_spectra, sample_groups, spectra_dir,
-                    crop_region=crop_region,
-                    derivative_order=deriv_order,
-                    return_state=True
-                )
-                st.session_state["preproc_state"] = preproc_state
-
-                st.session_state["group_plots"] = group_plot_dict
-                st.session_state["y_block_grouped"] = avg_y_block(st.session_state["y_block"])
-                st.session_state["sample_groups"] = sample_groups
-
             elif selected_method == "4. None":
                 preprocessed_spectra, cropped_axis = preprocess_none(
                     sample_spectra, spectra_dir,
                     crop_region=crop_region
                 )
+
+            elif selected_method == "3. Average Replicates: EMSC":
+                sample_groups = defaultdict(list)
+                for sid in sample_spectra.keys():
+                    gid = sid.split("-")[0]
+                    sample_groups[gid].append(sid)
+
+                # Build class_lookup: gid → class_label (only for "class" mode)
+                _class_lookup = None
+                if emsc_ref_mode == "class" and emsc_class_col is not None:
+                    _y_for_lookup = st.session_state["y_block"]
+                    _class_lookup = {}
+                    for _idx in _y_for_lookup.index:
+                        _gid = str(_idx).split("-")[0]
+                        _class_lookup[_gid] = str(_y_for_lookup.loc[_idx, emsc_class_col])
+
+                preprocessed_spectra, cropped_axis, group_plot_dict, preproc_state = group_preprocess_ref_emsc_mc(
+                    sample_spectra, sample_groups, spectra_dir,
+                    crop_region=crop_region,
+                    poly_ref_order=int(poly_ref_order),
+                    emsc_p_order=int(emsc_p_order),
+                    reference_mode=emsc_ref_mode,
+                    class_lookup=_class_lookup,
+                    ref_baseline_method=emsc_bl_method,
+                    als_lam=float(emsc_als_lam),
+                    als_p=float(emsc_als_p),
+                    apply_sg_smooth=apply_sg_smooth,
+                    sg_window=int(emsc_sg_window),
+                    sg_polyorder=int(emsc_sg_polyorder),
+                    apply_mean_center=apply_mean_center,
+                    return_state=True
+                )
+                st.session_state["preproc_state"] = preproc_state
+                st.session_state["trained_poly_ref_order"] = int(poly_ref_order)
+                st.session_state["trained_emsc_p_order"] = int(emsc_p_order)
+                st.session_state["trained_emsc_ref_mode"] = emsc_ref_mode
+                st.session_state["trained_emsc_class_col"] = emsc_class_col
+                st.session_state["trained_emsc_bl_method"] = emsc_bl_method
+                st.session_state["trained_emsc_als_lam"] = float(emsc_als_lam)
+                st.session_state["trained_emsc_als_p"] = float(emsc_als_p)
+                st.session_state["trained_emsc_sg_smooth"] = apply_sg_smooth
+                st.session_state["trained_emsc_sg_window"] = int(emsc_sg_window)
+                st.session_state["trained_emsc_sg_polyorder"] = int(emsc_sg_polyorder)
+                st.session_state["trained_emsc_mean_center"] = apply_mean_center
+
+                st.session_state["group_plots"] = group_plot_dict
+                st.session_state["y_block_grouped"] = avg_y_block(st.session_state["y_block"])
+                st.session_state["sample_groups"] = sample_groups
 
             # === Save results to session ===
             st.session_state["trained_preprocess_key"] = selected_method
@@ -536,8 +665,9 @@ if tab == "Preprocessing":
             st.session_state["cropped_axis"] = cropped_axis
             st.session_state["preprocessing_done"] = True
             st.session_state["trained_is_group"] = (
-                selected_method == "3. Average Replicates: Savgol-SNV-MeanCenter"
-                )
+                (selected_method == "1. Savgol-SNV-MeanCenter" and avg_replicates) or
+                selected_method == "3. Average Replicates: EMSC"
+            )
 
             st.success(f"✅ Preprocessing complete using: {selected_method}")
             st.write(f"Processed {len(preprocessed_spectra)} entries")
@@ -545,7 +675,8 @@ if tab == "Preprocessing":
         # === Display Results ===
         if st.session_state.get("preprocessing_done", False):
             preprocessed_spectra = st.session_state["preprocessed_spectra"]
-            y_df = st.session_state.get("y_block", None)
+            _is_grouped = st.session_state.get("trained_is_group", False)
+            y_df = st.session_state.get("y_block_grouped" if _is_grouped else "y_block", None)
 
             # ---------- Overlay with color-mode toggle ----------
             _prep_figs: list = []
@@ -1099,10 +1230,21 @@ if tab == "Prediction":
     trained_axis     = st.session_state.get("trained_axis")
     crop_region      = st.session_state.get("trained_crop_region", (800, 1800))
     deriv_order      = st.session_state.get("trained_deriv_order", 1)
+    trained_avg_replicates = st.session_state.get("trained_avg_replicates", False)
     trained_is_group = (
-    trained_key == "3. Average Replicates: Savgol-SNV-MeanCenter"
+        (trained_key == "1. Savgol-SNV-MeanCenter" and trained_avg_replicates) or
+        trained_key == "3. Average Replicates: EMSC"
     )
-    preproc_state    = st.session_state.get("preproc_state")
+    preproc_state           = st.session_state.get("preproc_state")
+    trained_emsc_ref_mode   = st.session_state.get("trained_emsc_ref_mode", "dataset")
+    trained_emsc_class_col  = st.session_state.get("trained_emsc_class_col")
+    trained_emsc_bl_method  = st.session_state.get("trained_emsc_bl_method", "lieber")
+    trained_emsc_als_lam    = st.session_state.get("trained_emsc_als_lam", 6.31e5)
+    trained_emsc_als_p      = st.session_state.get("trained_emsc_als_p", 0.01)
+    trained_emsc_sg_smooth  = st.session_state.get("trained_emsc_sg_smooth", False)
+    trained_emsc_sg_window  = st.session_state.get("trained_emsc_sg_window", 9)
+    trained_emsc_sg_poly    = st.session_state.get("trained_emsc_sg_polyorder", 2)
+    trained_emsc_mc         = st.session_state.get("trained_emsc_mean_center", True)
 
     # (optional) AsLS / Savgol params if you decide to store them from the Preprocessing tab
     asls_lambda  = st.session_state.get("trained_asls_lambda", 1e5)
@@ -1169,12 +1311,20 @@ if tab == "Prediction":
 
             # === Apply the SAME preprocessing & params ===
             if trained_key == "1. Savgol-SNV-MeanCenter":
-                pred_preprocessed, pred_axis = pre_func(
-                    pred_sample_spectra, spectra_dir,
-                    crop_region=crop_region,
-                    derivative_order=deriv_order,
-                    use_state=preproc_state
-                )
+                if trained_avg_replicates:
+                    pred_preprocessed, pred_axis, _group_plot_dict = group_preprocess_savgol_snv_mc(
+                        pred_sample_spectra, pred_sample_groups, spectra_dir,
+                        crop_region=crop_region,
+                        derivative_order=deriv_order,
+                        use_state=preproc_state
+                    )
+                else:
+                    pred_preprocessed, pred_axis = pre_func(
+                        pred_sample_spectra, spectra_dir,
+                        crop_region=crop_region,
+                        derivative_order=deriv_order,
+                        use_state=preproc_state
+                    )
 
             elif trained_key == "2. Baseline-Smooth-SNV":
                 # Stateless: no use_state needed
@@ -1187,18 +1337,43 @@ if tab == "Prediction":
                     sg_polyorder=sg_polyorder
                 )
 
-            elif trained_key == "3. Average Replicates: Savgol-SNV-MeanCenter":
-                pred_preprocessed, pred_axis, _group_plot_dict = pre_func(
-                    pred_sample_spectra, pred_sample_groups, spectra_dir,
-                    crop_region=crop_region,
-                    derivative_order=deriv_order,
-                    use_state=preproc_state
-                )
-
             elif trained_key == "4. None":
                 pred_preprocessed, pred_axis = preprocess_none(
                     pred_sample_spectra, spectra_dir,
                     crop_region=crop_region
+                )
+
+            elif trained_key == "3. Average Replicates: EMSC":
+                # Build class_lookup for prediction samples (only needed for class mode)
+                _pred_class_lookup = None
+                if trained_emsc_ref_mode == "class" and trained_emsc_class_col:
+                    if _has_y:
+                        _pred_class_lookup = {}
+                        for _idx in y_pred_df.index:
+                            _gid = str(_idx).split("-")[0]
+                            if trained_emsc_class_col in y_pred_df.columns:
+                                _pred_class_lookup[_gid] = str(y_pred_df.loc[_idx, trained_emsc_class_col])
+                    else:
+                        st.info(
+                            "No Y-block uploaded for prediction — class mode will fall back "
+                            "to the first available training class reference."
+                        )
+
+                pred_preprocessed, pred_axis, _group_plot_dict = pre_func(
+                    pred_sample_spectra, pred_sample_groups, spectra_dir,
+                    crop_region=crop_region,
+                    poly_ref_order=st.session_state.get("trained_poly_ref_order", 4),
+                    emsc_p_order=st.session_state.get("trained_emsc_p_order", 6),
+                    reference_mode=trained_emsc_ref_mode,
+                    class_lookup=_pred_class_lookup,
+                    ref_baseline_method=trained_emsc_bl_method,
+                    als_lam=trained_emsc_als_lam,
+                    als_p=trained_emsc_als_p,
+                    apply_sg_smooth=trained_emsc_sg_smooth,
+                    sg_window=trained_emsc_sg_window,
+                    sg_polyorder=trained_emsc_sg_poly,
+                    apply_mean_center=trained_emsc_mc,
+                    use_state=preproc_state
                 )
 
             else:
