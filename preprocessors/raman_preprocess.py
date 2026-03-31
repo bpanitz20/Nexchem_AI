@@ -165,19 +165,22 @@ def _poly_baseline_lieber(spectrum, axis, order=4, niter=100):
     return np.polyval(coeffs, x)
 
 
-def _emsc_correct_ref(spectra_matrix, reference, axis, p_order=6):
+def _emsc_correct_ref(spectra_matrix, reference, axis, p_order=6, interferents=None):
     """Extended Multiplicative Scatter Correction with an explicit reference spectrum.
 
     For each spectrum *s*, solves the linear system:
-        s ≈ a·r + b₀ + b₁·x + b₂·x² + … + bₚ·xᵖ
-    Corrected spectrum: (s − polynomial_part) / a
+        s ≈ a·r + c₁·q₁ + … + cₖ·qₖ + b₀ + b₁·x + … + bₚ·xᵖ
+    where qᵢ are optional interferent vectors (Liland 2016).
+    Corrected spectrum: (s − interferent_part − polynomial_part) / a
 
     Parameters
     ----------
     spectra_matrix : ndarray, shape (n, m)
-    reference      : ndarray, shape (m,)  — target reference spectrum
-    axis           : ndarray, shape (m,)  — spectral axis
-    p_order        : int                  — polynomial extension order
+    reference      : ndarray, shape (m,)        — target reference spectrum
+    axis           : ndarray, shape (m,)        — spectral axis
+    p_order        : int                        — polynomial extension order
+    interferents   : ndarray, shape (k, m) or None
+                     Interferent loading vectors to orthogonalise out of each spectrum.
 
     Returns
     -------
@@ -186,14 +189,20 @@ def _emsc_correct_ref(spectra_matrix, reference, axis, p_order=6):
     axis = np.asarray(axis, dtype=float)
     x = 2.0 * (axis - axis.min()) / (axis.max() - axis.min()) - 1.0
     poly_terms = np.column_stack([x ** k for k in range(p_order + 1)])  # (m, p_order+1)
-    D = np.column_stack([reference, poly_terms])                         # (m, p_order+2)
+
+    if interferents is not None and len(interferents):
+        # D = [reference | q₁ | … | qₖ | poly_terms]
+        D = np.column_stack([reference, interferents.T, poly_terms])
+    else:
+        D = np.column_stack([reference, poly_terms])
 
     corrected = np.zeros_like(spectra_matrix, dtype=float)
     for i, s in enumerate(spectra_matrix):
         coeffs, _, _, _ = np.linalg.lstsq(D, s, rcond=None)
         a = coeffs[0]
-        poly_part = poly_terms @ coeffs[1:]
-        corrected[i] = (s - poly_part) / a if a != 0.0 else s - poly_part
+        # Remove everything except a·reference
+        non_ref_part = D[:, 1:] @ coeffs[1:]
+        corrected[i] = (s - non_ref_part) / a if a != 0.0 else s - non_ref_part
     return corrected
 
 
@@ -280,9 +289,9 @@ def _compute_group_preprocess_ref_emsc_mc(sample_spectra, sample_groups, crop_re
                                            ref_baseline_method="lieber",
                                            als_lam=6.31e5, als_p=0.01,
                                            apply_sg_smooth=False, sg_window=9, sg_polyorder=2,
-                                           apply_mean_center=True):
-    """Crop → (optional SG smooth) → Reference-EMSC → (optional GlobalMeanCenter) →
-    Group Average.  No I/O."""
+                                           apply_mean_center=True, n_interferents=0):
+    """Crop → (optional SG smooth) → Reference-EMSC (2-pass if n_interferents > 0) →
+    (optional GlobalMeanCenter) → Group Average.  No I/O."""
     row_bank = []
     group_ids_bank = []
     cropped_axis = None
@@ -320,11 +329,34 @@ def _compute_group_preprocess_ref_emsc_mc(sample_spectra, sample_groups, crop_re
         poly_ref_order, reference_mode, class_lookup, use_state,
         ref_baseline_method=ref_baseline_method, als_lam=als_lam, als_p=als_p)
 
-    # EMSC correction — each spectrum corrected with its group's reference
-    emsc_corrected = np.zeros_like(spectral_matrix)
+    # Pass 1 EMSC — reference + polynomial only
+    emsc_pass1 = np.zeros_like(spectral_matrix, dtype=float)
+    for i, (s, gid) in enumerate(zip(spectral_matrix, group_ids_bank)):
+        emsc_pass1[i] = _emsc_correct_ref(
+            s[np.newaxis], reference_map[gid], axis, p_order=emsc_p_order)[0]
+
+    # Interferent correction — PCA on pass-1 residuals (Liland 2016)
+    interferent_vecs = None
+    if n_interferents > 0:
+        if use_state is not None and "emsc_interferents" in use_state:
+            # Prediction path: reuse training interferent vectors
+            interferent_vecs = np.asarray(use_state["emsc_interferents"], dtype=float)
+        else:
+            # Training path: compute PCA on mean-centred pass-1 spectra
+            from sklearn.decomposition import PCA
+            residuals = emsc_pass1 - np.mean(emsc_pass1, axis=0)
+            n_comp = min(n_interferents, residuals.shape[0] - 1, residuals.shape[1])
+            pca = PCA(n_components=n_comp)
+            pca.fit(residuals)
+            interferent_vecs = pca.components_          # (n_comp, n_wavenumbers)
+            state_extras["emsc_interferents"] = interferent_vecs.tolist()
+
+    # Pass 2 EMSC — with interferent columns if computed
+    emsc_corrected = np.zeros_like(spectral_matrix, dtype=float)
     for i, (s, gid) in enumerate(zip(spectral_matrix, group_ids_bank)):
         emsc_corrected[i] = _emsc_correct_ref(
-            s[np.newaxis], reference_map[gid], axis, p_order=emsc_p_order)[0]
+            s[np.newaxis], reference_map[gid], axis,
+            p_order=emsc_p_order, interferents=interferent_vecs)[0]
 
     # Optional global mean-centering
     mc_step = GlobalMeanCenterStep() if apply_mean_center else None
@@ -388,7 +420,7 @@ def group_preprocess_ref_emsc_mc(sample_spectra, sample_groups, spectra_dir,
                                   ref_baseline_method="lieber",
                                   als_lam=6.31e5, als_p=0.01,
                                   apply_sg_smooth=False, sg_window=9, sg_polyorder=2,
-                                  apply_mean_center=True,
+                                  apply_mean_center=True, n_interferents=0,
                                   return_state=False, use_state=None):
     """
     Group-level preprocessing: Crop → Reference-EMSC → Global Mean-Center → Group Average.
@@ -414,7 +446,7 @@ def group_preprocess_ref_emsc_mc(sample_spectra, sample_groups, spectra_dir,
             ref_baseline_method=ref_baseline_method,
             als_lam=als_lam, als_p=als_p,
             apply_sg_smooth=apply_sg_smooth, sg_window=sg_window, sg_polyorder=sg_polyorder,
-            apply_mean_center=apply_mean_center)
+            apply_mean_center=apply_mean_center, n_interferents=n_interferents)
 
     if not group_avg_spectra:
         return {}, cropped_axis, {}

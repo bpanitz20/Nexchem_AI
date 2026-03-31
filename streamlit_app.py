@@ -227,6 +227,10 @@ if tab == "Data Loading":
                 # ✅ Store raw data for next steps & for fast re-draws
                 st.session_state["raw_spectra"] = sample_spectra
                 st.session_state["y_block"] = y_df
+                # Originals — used by exclusion UI to restore from
+                st.session_state["raw_spectra_original"] = sample_spectra
+                st.session_state["y_block_original"] = y_df.copy()
+                st.session_state.pop("excluded_ids", None)
 
                 st.success("✅ Raw calibration data loaded.")
                 st.write(f"**Raman spectra loaded**: {len(sample_spectra)} samples")
@@ -350,6 +354,74 @@ if tab == "Data Loading":
                 file_name="data_loading_figures.pdf",
                 mime="application/pdf",
             )
+
+        # === Sample Exclusion ===
+        st.markdown("---")
+        st.subheader("🗑️ Exclude Samples")
+
+        _spectra_original = st.session_state.get("raw_spectra_original", sample_spectra)
+        _y_original       = st.session_state.get("y_block_original", y_df)
+
+        def _sort_key(x):
+            return int(x) if str(x).isdigit() else str(x)
+
+        _all_groups = sorted(_y_original.index.astype(str).tolist(), key=_sort_key)
+
+        _excluded_default = st.session_state.get("excluded_ids", [])
+        _excluded = st.multiselect(
+            "Select sample groups to exclude:",
+            options=_all_groups,
+            default=_excluded_default,
+            help="Removes the selected groups from both the spectra and Y-block before preprocessing. "
+                 "Use the individual spectra viewer above to identify outliers."
+        )
+
+        _col1, _col2 = st.columns([1, 1])
+        with _col1:
+            if st.button("Apply exclusions"):
+                _excl_set = set(str(e) for e in _excluded)
+                _filtered_spectra = {
+                    k: v for k, v in _spectra_original.items()
+                    if k.split("-")[0] not in _excl_set
+                }
+                _filtered_y = _y_original[~_y_original.index.astype(str).isin(_excl_set)]
+
+                st.session_state["excluded_ids"] = _excluded
+                st.session_state["raw_spectra"]  = _filtered_spectra
+                st.session_state["y_block"]      = _filtered_y
+
+                # Reset holdout — it was computed on a different set of samples
+                if st.session_state.get("holdout_active", False):
+                    st.session_state["holdout_active"] = False
+                    for _k in ["raw_spectra_full", "y_block_full", "raw_spectra_holdout",
+                               "y_block_holdout", "holdout_group", "holdout_group_col"]:
+                        st.session_state.pop(_k, None)
+                    st.warning("Hold-out split was reset — re-apply it below.")
+
+                if st.session_state.get("preprocessing_done", False):
+                    st.warning("Preprocessing was run on the previous dataset — re-run preprocessing.")
+
+                st.success(
+                    f"✅ {len(_excluded)} group(s) excluded. "
+                    f"{len(_filtered_spectra)} spectra remaining."
+                )
+                st.rerun()
+
+        with _col2:
+            if _excluded_default and st.button("Clear exclusions"):
+                st.session_state["excluded_ids"] = []
+                st.session_state["raw_spectra"]  = _spectra_original
+                st.session_state["y_block"]      = _y_original.copy()
+                if st.session_state.get("holdout_active", False):
+                    st.session_state["holdout_active"] = False
+                    for _k in ["raw_spectra_full", "y_block_full", "raw_spectra_holdout",
+                               "y_block_holdout", "holdout_group", "holdout_group_col"]:
+                        st.session_state.pop(_k, None)
+                    st.warning("Hold-out split was reset.")
+                st.rerun()
+
+        if _excluded_default:
+            st.info(f"Currently excluded: **{', '.join(str(e) for e in _excluded_default)}**")
 
         # === Hold-out Group Split ===
         st.markdown("---")
@@ -1308,6 +1380,10 @@ if tab == "Prediction":
                 pred_sample_groups = None
 
             pre_func = PREPROCESS_OPTIONS[trained_key]
+
+            # Initialise Y-block flags — resolved later after preprocessing
+            _has_y = False
+            y_pred_df = None
 
             # === Apply the SAME preprocessing & params ===
             if trained_key == "1. Savgol-SNV-MeanCenter":
