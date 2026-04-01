@@ -1391,6 +1391,57 @@ if tab == "Prediction":
         help="Journal style shows prediction set as blue open circles and calibration set as grey open circles. Requires a Y reference file.",
     )
 
+    if plot_style == "Journal":
+        with st.expander("⚙️ Journal plot options", expanded=False):
+            _js = st.session_state.get("journal_plot_style", {})
+            _c1, _c2, _c3 = st.columns(3)
+            with _c1:
+                _ms_cal  = st.number_input("Cal marker size",  value=_js.get("marker_size_cal",  40), min_value=1, step=1)
+                _ms_pred = st.number_input("Pred marker size", value=_js.get("marker_size_pred", 45), min_value=1, step=1)
+            with _c2:
+                _al_cal  = st.slider("Cal alpha",  0.0, 1.0, float(_js.get("alpha_cal",  0.7)), step=0.05)
+                _al_pred = st.slider("Pred alpha", 0.0, 1.0, float(_js.get("alpha_pred", 1.0)), step=0.05)
+            with _c3:
+                _fw = st.number_input("Fig width",  value=_js.get("fig_width",  7.0), min_value=2.0, step=0.5, format="%.1f")
+                _fh = st.number_input("Fig height", value=_js.get("fig_height", 6.0), min_value=2.0, step=0.5, format="%.1f")
+                _tick_fontsize = st.number_input("Tick label size", value=_js.get("tick_fontsize", 10), min_value=6, step=1)
+
+            _axis_auto = st.checkbox("Auto axis range", value=_js.get("axis_auto", True))
+            _axis_lo = _axis_hi = None
+            if not _axis_auto:
+                _ac1, _ac2 = st.columns(2)
+                with _ac1:
+                    _axis_lo = st.number_input("Axis min", value=float(_js.get("axis_lo") or 0.0), format="%.3f")
+                with _ac2:
+                    _axis_hi = st.number_input("Axis max", value=float(_js.get("axis_hi") or 1.0), format="%.3f")
+
+            _lc1, _lc2, _lc3 = st.columns(3)
+            with _lc1:
+                _xlabel = st.text_input("X axis label", value=_js.get("xlabel", "Actual Values"))
+            with _lc2:
+                _ylabel = st.text_input("Y axis label", value=_js.get("ylabel", "Predicted Values"))
+            with _lc3:
+                _custom_title = st.text_input("Plot title (blank = auto)", value=_js.get("custom_title", ""))
+
+            _show_legend = st.checkbox("Show legend", value=_js.get("show_legend", True))
+
+            st.session_state["journal_plot_style"] = {
+                "marker_size_cal":  _ms_cal,
+                "marker_size_pred": _ms_pred,
+                "alpha_cal":        _al_cal,
+                "alpha_pred":       _al_pred,
+                "fig_width":        _fw,
+                "fig_height":       _fh,
+                "axis_auto":        _axis_auto,
+                "axis_lo":          _axis_lo,
+                "axis_hi":          _axis_hi,
+                "xlabel":           _xlabel,
+                "ylabel":           _ylabel,
+                "custom_title":     _custom_title,
+                "tick_fontsize":    _tick_fontsize,
+                "show_legend":      _show_legend,
+            }
+
     if st.button("Run Prediction"):
         if use_holdout:
             # === Source: held-out group from session state ===
@@ -1605,6 +1656,7 @@ if tab == "Prediction":
                     # Overwrite saved plot with journal style if selected and
                     # reference Y is available (needed for the cal set overlay)
                     if plot_style == "Journal" and output.get("y_true") is not None:
+                        _jstyle = st.session_state.get("journal_plot_style", {})
                         plot_pred_vs_actual_journal(
                             y_true_pred=output["y_true"],
                             y_pred_pred=output["y_pred"],
@@ -1613,6 +1665,7 @@ if tab == "Prediction":
                             directory=results_dir,
                             title=f"External Predicted vs. Actual for {analyte} ({model_name})",
                             filename=f"External_Pred_vs_Actual_{model_name}_{analyte}.png",
+                            style=_jstyle,
                         )
                         if output.get("y_pred_corrected") is not None:
                             plot_pred_vs_actual_journal(
@@ -1623,6 +1676,7 @@ if tab == "Prediction":
                                 directory=results_dir,
                                 title=f"Corrected Predicted vs. Actual for {analyte} ({model_name})",
                                 filename=f"External_Pred_vs_Actual_Corrected_{model_name}_{analyte}.png",
+                                style=_jstyle,
                             )
 
                     prediction_outputs.append(output)
@@ -1680,6 +1734,15 @@ if tab == "Prediction":
                         sample_ids=output.get("sample_ids"),
                     )
                     st.plotly_chart(fig, use_container_width=True)
+
+                # Journal plot display (shown below interactive when Journal style selected)
+                if plot_style == "Journal":
+                    _pp = output.get("pred_plot_path")
+                    if _pp and os.path.exists(_pp):
+                        st.image(_pp, caption="Journal plot", width=600)
+                    _ppc = output.get("pred_plot_corrected_path")
+                    if _ppc and os.path.exists(_ppc):
+                        st.image(_ppc, caption="Journal plot (corrected)", width=600)
 
     # === Download Prediction Figures ===
     if "prediction_outputs" in st.session_state:

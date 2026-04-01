@@ -352,6 +352,7 @@ def plot_pred_vs_actual_journal(
     y_true_pred, y_pred_pred,
     y_true_cal, y_pred_cal,
     directory, title, filename,
+    style=None,
 ):
     """
     Journal-style predicted vs actual plot.
@@ -369,29 +370,43 @@ def plot_pred_vs_actual_journal(
     directory : str
     title : str
     filename : str
+    style : dict or None
+        Optional style overrides. Recognised keys:
+          marker_size_cal, marker_size_pred,
+          alpha_cal, alpha_pred,
+          axis_auto, axis_lo, axis_hi,
+          tick_length,
+          xlabel, ylabel,
+          fig_width, fig_height
     """
+    s = style or {}
+
     y_true_pred = np.asarray(y_true_pred).ravel()
     y_pred_pred = np.asarray(y_pred_pred).ravel()
     y_true_cal  = np.asarray(y_true_cal).ravel()
     y_pred_cal  = np.asarray(y_pred_cal).ravel()
 
     all_vals = np.concatenate([y_true_pred, y_pred_pred, y_true_cal, y_pred_cal])
-    lo = float(np.nanmin(all_vals))
-    hi = float(np.nanmax(all_vals))
-    pad = (hi - lo) * 0.05
-    lo -= pad
-    hi += pad
+    if s.get("axis_auto", True):
+        lo = float(np.nanmin(all_vals))
+        hi = float(np.nanmax(all_vals))
+        pad = (hi - lo) * 0.05
+        lo -= pad
+        hi += pad
+    else:
+        lo = float(s.get("axis_lo", np.nanmin(all_vals)))
+        hi = float(s.get("axis_hi", np.nanmax(all_vals)))
 
-    fig, ax = plt.subplots(figsize=(7, 6))
+    fig, ax = plt.subplots(figsize=(s.get("fig_width", 7), s.get("fig_height", 6)))
 
     # Calibration set — light grey open circles (underneath)
     ax.scatter(
         y_true_cal, y_pred_cal,
-        s=40,
+        s=s.get("marker_size_cal", 40),
         facecolors='none',
         edgecolors='#c0c0c0',
         linewidths=0.9,
-        alpha=0.7,
+        alpha=s.get("alpha_cal", 0.7),
         label='Calibration',
         zorder=2,
     )
@@ -399,11 +414,11 @@ def plot_pred_vs_actual_journal(
     # Prediction set — dark blue open circles (on top)
     ax.scatter(
         y_true_pred, y_pred_pred,
-        s=45,
+        s=s.get("marker_size_pred", 45),
         facecolors='none',
         edgecolors='#08306b',
         linewidths=1.4,
-        alpha=1.0,
+        alpha=s.get("alpha_pred", 1.0),
         label='Prediction',
         zorder=3,
     )
@@ -423,18 +438,20 @@ def plot_pred_vs_actual_journal(
     # Axis limits, labels, title
     ax.set_xlim(lo, hi)
     ax.set_ylim(lo, hi)
-    ax.set_xlabel('Actual Values')
-    ax.set_ylabel('Predicted Values')
-    ax.set_title(title)
+    ax.set_xlabel(s.get("xlabel", "Actual Values"))
+    ax.set_ylabel(s.get("ylabel", "Predicted Values"))
+    ax.set_title(s.get("custom_title") or title)
 
     # Inward ticks on all four sides
-    ax.tick_params(axis='both', direction='in', top=True, right=True, length=5)
+    ax.tick_params(axis='both', direction='in', top=True, right=True,
+                   length=s.get("tick_length", 5), labelsize=s.get("tick_fontsize", 10))
 
     # All four spines visible
     for spine in ax.spines.values():
         spine.set_visible(True)
 
-    ax.legend(loc='upper left', frameon=True, fontsize=9)
+    if s.get("show_legend", True):
+        ax.legend(loc='upper left', frameon=True, fontsize=9)
     ax.grid(True, linewidth=0.4, alpha=0.25)
 
     fig.tight_layout()
