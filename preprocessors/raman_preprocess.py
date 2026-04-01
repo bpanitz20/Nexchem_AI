@@ -789,6 +789,121 @@ def preprocess_asls_savgol_snv(
     return spectra_copy, axis_ref
 
 
+def _compute_group_preprocess_asls_savgol_snv(sample_spectra, sample_groups, crop_region,
+                                               asls_lambda, asls_p, sg_window, sg_polyorder):
+    """Pure computation: Crop → AsLS → SavGol-smooth → SNV → Group Average. No I/O."""
+    row_bank = []
+    group_ids_bank = []
+    cropped_axis = None
+
+    cropper = Cropper(region=crop_region)
+    snv_step = SNVStep()
+
+    for group_id, sample_ids in sample_groups.items():
+        for sid in sorted(sample_ids):
+            spectra = sample_spectra.get(sid)
+            if not spectra:
+                print(f"⚠️ Sample '{sid}' missing or empty. Skipping.")
+                continue
+            for spectrum in spectra:
+                cropped = cropper.apply(spectrum)
+                if cropped_axis is None:
+                    cropped_axis = cropped.spectral_axis
+                y = cropped.spectral_data
+                baseline = _als_baseline(y, lam=asls_lambda, p=asls_p)
+                y_corr = y - baseline
+                wl = min(sg_window, len(y_corr) if len(y_corr) % 2 == 1 else len(y_corr) - 1)
+                if wl < 3:
+                    wl = 3
+                if wl % 2 == 0:
+                    wl += 1
+                y_smooth = savgol_filter(y_corr, window_length=wl, polyorder=sg_polyorder, deriv=0)
+                y_snv = snv_step.transform(y_smooth[np.newaxis, :]).squeeze(0)
+                row_bank.append(y_snv)
+                group_ids_bank.append(group_id)
+
+    if not row_bank:
+        return {}, cropped_axis, {}
+
+    grouped_temp = {gid: [] for gid in sample_groups.keys()}
+    for y_row, gid in zip(row_bank, group_ids_bank):
+        grouped_temp[gid].append(y_row)
+
+    group_avg_spectra = {}
+    for gid, arr_list in grouped_temp.items():
+        if not arr_list:
+            continue
+        avg = np.mean(np.vstack(arr_list), axis=0)
+        group_avg_spectra[gid] = Spectrum(avg, cropped_axis)
+
+    return group_avg_spectra, cropped_axis, grouped_temp
+
+
+def plot_preprocess_results_group_asls_savgol_snv(grouped_temp, group_avg_spectra,
+                                                   cropped_axis, spectra_dir):
+    """Save per-group replicate + average diagnostic plots. Returns group_plot_dict."""
+    os.makedirs(spectra_dir, exist_ok=True)
+    group_plot_dict = {}
+
+    for gid, arr_list in grouped_temp.items():
+        if not arr_list:
+            continue
+        arr = np.vstack(arr_list)
+        avg_spectrum = group_avg_spectra.get(gid)
+        avg = avg_spectrum.spectral_data if avg_spectrum is not None else np.mean(arr, axis=0)
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        for y_proc in arr:
+            ax.plot(cropped_axis, y_proc, alpha=0.3)
+        ax.plot(cropped_axis, avg, color="black", linewidth=2, label=f"{gid} Avg")
+        ax.set_title(f"{gid} – AsLS + SavGol + SNV")
+        ax.set_xlabel("Raman Shift (cm⁻¹)")
+        ax.set_ylabel("Intensity")
+        ax.legend()
+        fig.savefig(os.path.join(spectra_dir, f"{gid}_asls_sg_snv_avg.png"),
+                    dpi=300, bbox_inches="tight")
+        group_plot_dict[gid] = fig
+        plt.close(fig)
+
+    return group_plot_dict
+
+
+def group_preprocess_asls_savgol_snv(sample_spectra, sample_groups, spectra_dir,
+                                      crop_region=DEFAULT_CROP_REGION,
+                                      asls_lambda=DEFAULT_ASLS_LAMBDA,
+                                      asls_p=DEFAULT_ASLS_P,
+                                      sg_window=DEFAULT_SAVGOL_WINDOW,
+                                      sg_polyorder=DEFAULT_SAVGOL_POLYORDER):
+    """
+    Group-level preprocessing: Crop → AsLS → SavGol-smooth → SNV → Group Average.
+
+    Stateless — all steps are per-spectrum; no global mean-centering.
+
+    Parameters
+    ----------
+    sample_spectra : dict[str, list[ramanspy.Spectrum]]
+    sample_groups  : dict[group_id, list[sample_id]]
+    spectra_dir    : str
+
+    Returns
+    -------
+    group_avg_spectra : dict[group_id, ramanspy.Spectrum]
+    cropped_axis      : np.ndarray
+    group_plot_dict   : dict[group_id, matplotlib.Figure]
+    """
+    group_avg_spectra, cropped_axis, grouped_temp = _compute_group_preprocess_asls_savgol_snv(
+        sample_spectra, sample_groups, crop_region,
+        asls_lambda, asls_p, sg_window, sg_polyorder)
+
+    if not group_avg_spectra:
+        return {}, cropped_axis, {}
+
+    group_plot_dict = plot_preprocess_results_group_asls_savgol_snv(
+        grouped_temp, group_avg_spectra, cropped_axis, spectra_dir)
+
+    return group_avg_spectra, cropped_axis, group_plot_dict
+
+
 # ---------------------------------------------------------------------------
 # Backward-compatibility aliases — old names are preserved; do not remove yet
 # ---------------------------------------------------------------------------

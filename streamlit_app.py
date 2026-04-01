@@ -22,6 +22,7 @@ from preprocessors.raman_preprocess import (
     preprocess_savgol_snv_mc,
     group_preprocess_savgol_snv_mc,
     group_preprocess_ref_emsc_mc,
+    group_preprocess_asls_savgol_snv,
     avg_y_block,
     preprocess_none,
     preprocess_asls_savgol_snv,
@@ -461,15 +462,28 @@ if tab == "Data Loading":
             else:
                 group_col = st.selectbox("Group column:", cat_cols, key="holdout_group_col_select")
                 unique_groups = sorted(_y_for_split[group_col].dropna().unique().tolist(), key=str)
-                holdout_group = st.selectbox("Hold-out group:", unique_groups, key="holdout_group_select")
+                holdout_groups = st.multiselect(
+                    "Hold-out group(s):",
+                    unique_groups,
+                    default=st.session_state.get("holdout_group", []) if isinstance(st.session_state.get("holdout_group"), list) else [],
+                    key="holdout_group_select",
+                    help="Select one or more groups to combine into the hold-out set (e.g. two low-sample seasons)."
+                )
 
-                n_holdout = int((_y_for_split[group_col] == holdout_group).sum())
-                n_train   = int((_y_for_split[group_col] != holdout_group).sum())
-                st.info(f"Training: **{n_train}** rows | Hold-out: **{n_holdout}** rows")
+                if holdout_groups:
+                    _mask_holdout = _y_for_split[group_col].isin(holdout_groups)
+                    n_holdout = int(_mask_holdout.sum())
+                    n_train   = int((~_mask_holdout).sum())
+                    st.info(f"Training: **{n_train}** rows | Hold-out: **{n_holdout}** rows")
 
                 if st.button("Apply split"):
-                    holdout_ids = set(_y_for_split[_y_for_split[group_col] == holdout_group].index.astype(str))
-                    train_ids   = set(_y_for_split[_y_for_split[group_col] != holdout_group].index.astype(str))
+                    if not holdout_groups:
+                        st.warning("Select at least one hold-out group.")
+                        st.stop()
+
+                    _mask_holdout = _y_for_split[group_col].isin(holdout_groups)
+                    holdout_ids = set(_y_for_split[_mask_holdout].index.astype(str))
+                    train_ids   = set(_y_for_split[~_mask_holdout].index.astype(str))
 
                     full_spectra = st.session_state.get("raw_spectra_full", st.session_state["raw_spectra"])
 
@@ -478,8 +492,8 @@ if tab == "Data Loading":
 
                     # Keep the group column — the aligner extracts "Class" automatically
                     # and returns it as class_labels, so it never reaches the model.
-                    y_block_train   = _y_for_split[_y_for_split[group_col] != holdout_group]
-                    y_block_holdout = _y_for_split[_y_for_split[group_col] == holdout_group]
+                    y_block_train   = _y_for_split[~_mask_holdout]
+                    y_block_holdout = _y_for_split[_mask_holdout]
 
                     # Preserve originals (only on first apply)
                     if "raw_spectra_full" not in st.session_state:
@@ -496,18 +510,21 @@ if tab == "Data Loading":
                     st.session_state["y_block_holdout"]     = y_block_holdout
 
                     st.session_state["holdout_active"]    = True
-                    st.session_state["holdout_group"]     = holdout_group
+                    st.session_state["holdout_group"]     = holdout_groups
                     st.session_state["holdout_group_col"] = group_col
 
+                    _label = ", ".join(str(g) for g in holdout_groups)
                     st.success(
                         f"✅ Split applied — Training: {len(raw_spectra_train)} spectra | "
-                        f"Hold-out ({holdout_group}): {len(raw_spectra_holdout)} spectra"
+                        f"Hold-out ({_label}): {len(raw_spectra_holdout)} spectra"
                     )
                     st.rerun()
 
         if st.session_state.get("holdout_active", False):
+            _hg = st.session_state["holdout_group"]
+            _hg_label = ", ".join(str(g) for g in _hg) if isinstance(_hg, list) else str(_hg)
             st.info(
-                f"🔀 Active split — Hold-out group: **{st.session_state['holdout_group']}** "
+                f"🔀 Active split — Hold-out group(s): **{_hg_label}** "
                 f"(column: **{st.session_state['holdout_group_col']}**)"
             )
 
@@ -544,6 +561,12 @@ if tab == "Preprocessing":
             asls_p = st.number_input("AsLS asymmetry p", value=0.001, format="%.3f")
             sg_window = st.number_input("Savitzky–Golay window length", value=13)
             sg_polyorder = st.number_input("Savitzky–Golay polynomial order", value=2)
+            avg_replicates_2 = st.checkbox(
+                "Average replicates",
+                value=False,
+                key="avg_rep_2",
+                help="Group replicates by sample prefix (before '-') and average after preprocessing."
+            )
 
         # Reference-EMSC parameters
         if selected_method == "3. Average Replicates: EMSC":
@@ -659,20 +682,38 @@ if tab == "Preprocessing":
                 st.session_state["trained_avg_replicates"] = avg_replicates
 
             elif selected_method == "2. Baseline-Smooth-SNV":
-                preprocessed_spectra, cropped_axis = preprocess_asls_savgol_snv(
-                    sample_spectra, spectra_dir,
-                    crop_region=crop_region,
-                    asls_lambda=asls_lambda,
-                    asls_p=asls_p,
-                    sg_window=sg_window,
-                    sg_polyorder=sg_polyorder
-                )
-                
+                if avg_replicates_2:
+                    sample_groups = defaultdict(list)
+                    for sid in sample_spectra.keys():
+                        gid = sid.split("-")[0]
+                        sample_groups[gid].append(sid)
+                    preprocessed_spectra, cropped_axis, group_plot_dict = group_preprocess_asls_savgol_snv(
+                        sample_spectra, sample_groups, spectra_dir,
+                        crop_region=crop_region,
+                        asls_lambda=asls_lambda,
+                        asls_p=asls_p,
+                        sg_window=sg_window,
+                        sg_polyorder=sg_polyorder
+                    )
+                    st.session_state["group_plots"] = group_plot_dict
+                    st.session_state["y_block_grouped"] = avg_y_block(st.session_state["y_block"])
+                    st.session_state["sample_groups"] = sample_groups
+                else:
+                    preprocessed_spectra, cropped_axis = preprocess_asls_savgol_snv(
+                        sample_spectra, spectra_dir,
+                        crop_region=crop_region,
+                        asls_lambda=asls_lambda,
+                        asls_p=asls_p,
+                        sg_window=sg_window,
+                        sg_polyorder=sg_polyorder
+                    )
+
                 # === Save AsLS/Savitzky parameters for use during prediction ===
                 st.session_state["trained_asls_lambda"] = asls_lambda
                 st.session_state["trained_asls_p"] = asls_p
                 st.session_state["trained_sg_window"] = sg_window
                 st.session_state["trained_sg_polyorder"] = sg_polyorder
+                st.session_state["trained_avg_replicates_2"] = avg_replicates_2
 
             elif selected_method == "4. None":
                 preprocessed_spectra, cropped_axis = preprocess_none(
@@ -738,6 +779,7 @@ if tab == "Preprocessing":
             st.session_state["preprocessing_done"] = True
             st.session_state["trained_is_group"] = (
                 (selected_method == "1. Savgol-SNV-MeanCenter" and avg_replicates) or
+                (selected_method == "2. Baseline-Smooth-SNV" and avg_replicates_2) or
                 selected_method == "3. Average Replicates: EMSC"
             )
 
@@ -1274,7 +1316,8 @@ if tab == "Prediction":
 
     # === Source selection ===
     _holdout_active = st.session_state.get("holdout_active", False)
-    _holdout_group  = st.session_state.get("holdout_group", "")
+    _hg_raw         = st.session_state.get("holdout_group", "")
+    _holdout_group  = ", ".join(str(g) for g in _hg_raw) if isinstance(_hg_raw, list) else str(_hg_raw)
 
     if _holdout_active:
         _pred_source = st.radio(
@@ -1302,9 +1345,11 @@ if tab == "Prediction":
     trained_axis     = st.session_state.get("trained_axis")
     crop_region      = st.session_state.get("trained_crop_region", (800, 1800))
     deriv_order      = st.session_state.get("trained_deriv_order", 1)
-    trained_avg_replicates = st.session_state.get("trained_avg_replicates", False)
+    trained_avg_replicates   = st.session_state.get("trained_avg_replicates", False)
+    trained_avg_replicates_2 = st.session_state.get("trained_avg_replicates_2", False)
     trained_is_group = (
         (trained_key == "1. Savgol-SNV-MeanCenter" and trained_avg_replicates) or
+        (trained_key == "2. Baseline-Smooth-SNV" and trained_avg_replicates_2) or
         trained_key == "3. Average Replicates: EMSC"
     )
     preproc_state           = st.session_state.get("preproc_state")
@@ -1404,14 +1449,24 @@ if tab == "Prediction":
 
             elif trained_key == "2. Baseline-Smooth-SNV":
                 # Stateless: no use_state needed
-                pred_preprocessed, pred_axis = pre_func(
-                    pred_sample_spectra, spectra_dir,
-                    crop_region=crop_region,
-                    asls_lambda=asls_lambda,
-                    asls_p=asls_p,
-                    sg_window=sg_window,
-                    sg_polyorder=sg_polyorder
-                )
+                if trained_avg_replicates_2:
+                    pred_preprocessed, pred_axis, _group_plot_dict = group_preprocess_asls_savgol_snv(
+                        pred_sample_spectra, pred_sample_groups, spectra_dir,
+                        crop_region=crop_region,
+                        asls_lambda=asls_lambda,
+                        asls_p=asls_p,
+                        sg_window=sg_window,
+                        sg_polyorder=sg_polyorder
+                    )
+                else:
+                    pred_preprocessed, pred_axis = pre_func(
+                        pred_sample_spectra, spectra_dir,
+                        crop_region=crop_region,
+                        asls_lambda=asls_lambda,
+                        asls_p=asls_p,
+                        sg_window=sg_window,
+                        sg_polyorder=sg_polyorder
+                    )
 
             elif trained_key == "4. None":
                 pred_preprocessed, pred_axis = preprocess_none(
