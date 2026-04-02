@@ -1076,7 +1076,7 @@ if tab == "Modeling":
             if var_select_method == "VIP threshold":
                 vip_threshold = st.slider(
                     "VIP threshold",
-                    min_value=0.5, max_value=2.0, value=1.0, step=0.05,
+                    min_value=0.25, max_value=2.0, value=1.0, step=0.05,
                     help="Retain variables with VIP ≥ threshold. Conventional cutoff is 1.0.",
                 )
                 from models.selectors.vip import VIPSelector
