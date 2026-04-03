@@ -105,52 +105,75 @@ def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, f
 
 
 
-def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels=None):
-    plt.figure(figsize=(8, 6))
+def _build_pred_vs_actual_fig(y_true, y_pred, title, class_labels=None, style=None):
+    """Build and return a pred vs actual matplotlib figure without saving to disk.
+
+    Parameters
+    ----------
+    style : dict or None
+        Recognised keys: tick_fontsize, label_fontsize,
+        pva_axis_auto, pva_lo, pva_hi, pva_xlabel, pva_ylabel,
+        fig_width, fig_height
+    """
+    s = style or {}
+    tick_fs  = s.get("tick_fontsize",  10)
+    label_fs = s.get("label_fontsize", 12)
+    fw       = s.get("fig_width",  8.0)
+    fh       = s.get("fig_height", 6.0)
+
+    fig, ax = plt.subplots(figsize=(fw, fh))
 
     if class_labels is not None:
         le = LabelEncoder()
         encoded_labels = le.fit_transform(class_labels)
         unique_labels = np.unique(encoded_labels)
         class_names = le.classes_
-
-        # Marker styles cycle
         markers = ['o', 's', '^', 'D', 'v', 'P', '*', 'X']
         colors = plt.cm.tab10.colors
-
         for idx, class_val in enumerate(unique_labels):
             indices = encoded_labels == class_val
-            plt.scatter(
+            ax.scatter(
                 y_true[indices], y_pred[indices],
                 c=[colors[idx % len(colors)]],
                 marker=markers[idx % len(markers)],
                 alpha=0.7,
                 label=str(class_names[class_val])
             )
-
-        plt.legend(title="Class", bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.legend(title="Class", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=tick_fs)
     else:
-        plt.scatter(y_true, y_pred, color='blue', alpha=0.6, label='Data')
+        ax.scatter(y_true, y_pred, color='blue', alpha=0.6, label='Data')
 
-    # Ideal and best-fit lines
-    plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()],
-             color='red', linestyle='--', label='Ideal')
+    ax.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()],
+            color='red', linestyle='--', label='Ideal')
 
     slope, intercept = np.polyfit(y_true.ravel(), y_pred.ravel(), 1)
     x_line = np.linspace(y_true.min(), y_true.max(), 200)
-    plt.plot(x_line, slope * x_line + intercept, 'g--', label='Best Fit')
+    ax.plot(x_line, slope * x_line + intercept, 'g--', label='Best Fit')
 
-    plt.xlabel('Actual Values')
-    plt.ylabel('Predicted Values')
-    plt.title(title)
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
+    if not s.get("pva_axis_auto", True):
+        lo = s.get("pva_lo")
+        hi = s.get("pva_hi")
+        if lo is not None:
+            ax.set_xlim(lo, hi)
+            ax.set_ylim(lo, hi)
 
+    ax.set_xlabel(s.get("pva_xlabel", "Actual Values"), fontsize=label_fs)
+    ax.set_ylabel(s.get("pva_ylabel", "Predicted Values"), fontsize=label_fs)
+    ax.set_title(title, fontsize=label_fs)
+    ax.tick_params(axis='both', labelsize=tick_fs)
+    ax.grid(True)
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+
+def plot_pred_vs_actual(y_true, y_pred, directory, title, filename, class_labels=None):
+    """Build a pred vs actual figure and save to disk."""
+    fig = _build_pred_vs_actual_fig(y_true, y_pred, title, class_labels=class_labels)
     _base = os.path.join(directory, os.path.splitext(filename)[0])
-    plt.savefig(_base + ".png", dpi=300, bbox_inches="tight")
-    plt.savefig(_base + ".pdf", bbox_inches="tight")
-    plt.close()
+    fig.savefig(_base + ".png", dpi=300, bbox_inches="tight")
+    fig.savefig(_base + ".pdf", bbox_inches="tight")
+    plt.close(fig)
 
 
 
@@ -462,48 +485,79 @@ def plot_pred_vs_actual_journal(
     plt.close(fig)
 
 
-def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_name, analyte, model_name, directory):
+def _build_cv_figures(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal,
+                      param_name, analyte, model_name, style=None):
+    """Build and return (fig_r2, fig_rmse) without saving to disk.
+
+    Parameters
+    ----------
+    style : dict or None
+        Recognised keys:
+          tick_fontsize, label_fontsize,
+          xlabel,
+          ylabel_r2, ylabel_rmse,
+          title_r2, title_rmse,
+          axis_auto_r2, ymin_r2, ymax_r2,
+          axis_auto_rmse, ymin_rmse, ymax_rmse,
+          fig_width, fig_height
     """
-    Plot R2 and RMSE curves for calibration and cross-validation.
-    """
-    # Plot R2
-    plt.figure(figsize=(8, 6))
-    plt.plot(param_range, r2_cv, label='R² CV', marker='o', color='tab:blue')
+    s = style or {}
+    tick_fs  = s.get("tick_fontsize",  10)
+    label_fs = s.get("label_fontsize", 12)
+    fw       = s.get("fig_width",  8.0)
+    fh       = s.get("fig_height", 6.0)
+    xlabel   = s.get("xlabel", param_name)
+
+    # ── R² figure ────────────────────────────────────────────────────────────
+    fig_r2, ax_r2 = plt.subplots(figsize=(fw, fh))
+    ax_r2.plot(param_range, r2_cv,  label='R² CV',  marker='o', color='tab:blue')
     if r2_cal:
-        plt.plot(param_range, r2_cal, label='R² Cal', marker='s', color='tab:orange')
-    plt.title(f"R² vs {param_name} for {analyte} ({model_name})")
-    plt.xlabel(param_name)
-    plt.ylabel("R²")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    _r2_base = os.path.join(directory, f'CV_R2_{model_name}_{analyte}')
-    plt.savefig(_r2_base + '.png', dpi=300)
-    plt.savefig(_r2_base + '.pdf')
-    plt.close()
+        ax_r2.plot(param_range, r2_cal, label='R² Cal', marker='s', color='tab:orange')
+    ax_r2.set_title(s.get("title_r2") or f"R² vs {param_name} for {analyte} ({model_name})",
+                    fontsize=label_fs)
+    ax_r2.set_xlabel(xlabel, fontsize=label_fs)
+    ax_r2.set_ylabel(s.get("ylabel_r2", "R²"), fontsize=label_fs)
+    ax_r2.tick_params(axis='both', labelsize=tick_fs)
+    if not s.get("axis_auto_r2", True):
+        ax_r2.set_ylim(s.get("ymin_r2"), s.get("ymax_r2"))
+    ax_r2.grid(True)
+    ax_r2.legend()
+    fig_r2.tight_layout()
 
-    # Plot RMSE
-    #fig, ax = plt.subplots(figsize=(8,6))
-    plt.figure(figsize=(8, 6))
-    plt.plot(param_range, rmse_cv, label='RMSE CV', marker='o', color='tab:blue')
+    # ── RMSE figure ──────────────────────────────────────────────────────────
+    fig_rmse, ax_rmse = plt.subplots(figsize=(fw, fh))
+    ax_rmse.plot(param_range, rmse_cv,  label='RMSE CV',  marker='o', color='tab:blue')
     if rmse_cal:
-        plt.plot(param_range, rmse_cal, label='RMSE Cal', marker='o', color='tab:orange')
-    plt.title(f"RMSE vs {param_name} for {analyte} ({model_name})")
-    plt.xlabel(param_name)
-    
-    #ax.set_ylim(0,8)
-    #ax.set_yticks(range(0,9,1))
-    #ax.tick_params(axis="both", direction="in")
-    #ax.grid(True, alpha=0.2, linewidth=0.5)
+        ax_rmse.plot(param_range, rmse_cal, label='RMSE Cal', marker='o', color='tab:orange')
+    ax_rmse.set_title(s.get("title_rmse") or f"RMSE vs {param_name} for {analyte} ({model_name})",
+                      fontsize=label_fs)
+    ax_rmse.set_xlabel(xlabel, fontsize=label_fs)
+    ax_rmse.set_ylabel(s.get("ylabel_rmse", "RMSE"), fontsize=label_fs)
+    ax_rmse.tick_params(axis='both', labelsize=tick_fs)
+    if not s.get("axis_auto_rmse", True):
+        ax_rmse.set_ylim(s.get("ymin_rmse"), s.get("ymax_rmse"))
+    ax_rmse.grid(True)
+    ax_rmse.legend()
+    fig_rmse.tight_layout()
 
-    plt.ylabel("RMSE")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
+    return fig_r2, fig_rmse
+
+
+def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_name, analyte, model_name, directory):
+    """Build CV R² and RMSE figures and save to disk."""
+    fig_r2, fig_rmse = _build_cv_figures(
+        param_range, r2_cv, r2_cal, rmse_cv, rmse_cal,
+        param_name, analyte, model_name)
+
+    _r2_base = os.path.join(directory, f'CV_R2_{model_name}_{analyte}')
+    fig_r2.savefig(_r2_base + '.png', dpi=300, bbox_inches='tight')
+    fig_r2.savefig(_r2_base + '.pdf', bbox_inches='tight')
+    plt.close(fig_r2)
+
     _rmse_base = os.path.join(directory, f'CV_RMSE_{model_name}_{analyte}')
-    plt.savefig(_rmse_base + '.png', dpi=300)
-    plt.savefig(_rmse_base + '.pdf')
-    plt.close()
+    fig_rmse.savefig(_rmse_base + '.png', dpi=300, bbox_inches='tight')
+    fig_rmse.savefig(_rmse_base + '.pdf', bbox_inches='tight')
+    plt.close(fig_rmse)
 
 def plot_coefficients(axis, coefficients, directory, model_name, analyte):
     plt.figure(figsize=(10, 6))

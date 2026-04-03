@@ -17,7 +17,7 @@ from loaders.raman_loader import load_raman
 import matplotlib.pyplot as plt
 import re
 from plotting.plot_raw import plot_spectra_colored_by_analyte
-from plotting.plot_regression import plot_pred_vs_actual_interactive, plot_pred_vs_actual_journal
+from plotting.plot_regression import plot_pred_vs_actual_interactive, plot_pred_vs_actual_journal, _build_cv_figures, _build_pred_vs_actual_fig
 from preprocessors.raman_preprocess import (
     preprocess_savgol_snv_mc,
     group_preprocess_savgol_snv_mc,
@@ -1216,26 +1216,123 @@ if tab == "Modeling":
             # === CV Diagnostic Plots ===
             st.subheader("Cross Validation Diagnostics")
 
+            # ── Plot style options ──────────────────────────────────────────
+            with st.expander("⚙️ CV plot options", expanded=False):
+                _cs = st.session_state.get("cv_plot_style", {})
+                _cc1, _cc2, _cc3 = st.columns(3)
+                with _cc1:
+                    _cv_tick_fs  = st.number_input("Tick label size",  value=_cs.get("tick_fontsize",  10), min_value=6, step=1, key="cv_tick_fs")
+                    _cv_label_fs = st.number_input("Axis label size",  value=_cs.get("label_fontsize", 12), min_value=6, step=1, key="cv_label_fs")
+                with _cc2:
+                    _cv_fw = st.number_input("Fig width",  value=_cs.get("fig_width",  8.0), min_value=2.0, step=0.5, format="%.1f", key="cv_fw")
+                    _cv_fh = st.number_input("Fig height", value=_cs.get("fig_height", 6.0), min_value=2.0, step=0.5, format="%.1f", key="cv_fh")
+                with _cc3:
+                    _cv_xlabel    = st.text_input("X axis label",     value=_cs.get("xlabel", ""),      key="cv_xlabel",    help="Blank = use parameter name")
+                    _cv_ylabel_r2 = st.text_input("Y label (R² plot)",   value=_cs.get("ylabel_r2",  "R²"),  key="cv_ylabel_r2")
+                    _cv_ylabel_rmse = st.text_input("Y label (RMSE plot)", value=_cs.get("ylabel_rmse", "RMSE"), key="cv_ylabel_rmse")
+
+                _ct1, _ct2 = st.columns(2)
+                with _ct1:
+                    _cv_title_r2   = st.text_input("R² plot title (blank = auto)",   value=_cs.get("title_r2",   ""), key="cv_title_r2")
+                with _ct2:
+                    _cv_title_rmse = st.text_input("RMSE plot title (blank = auto)", value=_cs.get("title_rmse", ""), key="cv_title_rmse")
+
+                _cr2_1, _cr2_2, _crmse_1, _crmse_2 = st.columns(4)
+                _cv_auto_r2   = st.checkbox("Auto Y range (R²)",   value=_cs.get("axis_auto_r2",   True), key="cv_auto_r2")
+                _cv_auto_rmse = st.checkbox("Auto Y range (RMSE)", value=_cs.get("axis_auto_rmse", True), key="cv_auto_rmse")
+                _cv_ymin_r2 = _cv_ymax_r2 = _cv_ymin_rmse = _cv_ymax_rmse = None
+                if not _cv_auto_r2:
+                    _ra1, _ra2 = st.columns(2)
+                    with _ra1:
+                        _cv_ymin_r2 = st.number_input("R² Y min", value=float(_cs.get("ymin_r2") or 0.0), format="%.3f", key="cv_ymin_r2")
+                    with _ra2:
+                        _cv_ymax_r2 = st.number_input("R² Y max", value=float(_cs.get("ymax_r2") or 1.0), format="%.3f", key="cv_ymax_r2")
+                if not _cv_auto_rmse:
+                    _rm1, _rm2 = st.columns(2)
+                    with _rm1:
+                        _cv_ymin_rmse = st.number_input("RMSE Y min", value=float(_cs.get("ymin_rmse") or 0.0), format="%.3f", key="cv_ymin_rmse")
+                    with _rm2:
+                        _cv_ymax_rmse = st.number_input("RMSE Y max", value=float(_cs.get("ymax_rmse") or 1.0), format="%.3f", key="cv_ymax_rmse")
+
+                # Pred vs actual style (shared font sizes, axis range)
+                st.markdown("**CV Pred vs Actual (static)**")
+                _cv_pva_auto = st.checkbox("Auto axis range (pred vs actual)", value=_cs.get("pva_axis_auto", True), key="cv_pva_auto")
+                _cv_pva_lo = _cv_pva_hi = None
+                if not _cv_pva_auto:
+                    _pa1, _pa2 = st.columns(2)
+                    with _pa1:
+                        _cv_pva_lo = st.number_input("Pred vs actual min", value=float(_cs.get("pva_lo") or 0.0), format="%.3f", key="cv_pva_lo")
+                    with _pa2:
+                        _cv_pva_hi = st.number_input("Pred vs actual max", value=float(_cs.get("pva_hi") or 1.0), format="%.3f", key="cv_pva_hi")
+                _cv_pva_xlabel = st.text_input("Pred vs actual X label", value=_cs.get("pva_xlabel", "Actual Values"),   key="cv_pva_xlabel")
+                _cv_pva_ylabel = st.text_input("Pred vs actual Y label", value=_cs.get("pva_ylabel", "Predicted Values"), key="cv_pva_ylabel")
+
+                st.session_state["cv_plot_style"] = {
+                    "tick_fontsize":  _cv_tick_fs,
+                    "label_fontsize": _cv_label_fs,
+                    "fig_width":      _cv_fw,
+                    "fig_height":     _cv_fh,
+                    "xlabel":         _cv_xlabel,
+                    "ylabel_r2":      _cv_ylabel_r2,
+                    "ylabel_rmse":    _cv_ylabel_rmse,
+                    "title_r2":       _cv_title_r2,
+                    "title_rmse":     _cv_title_rmse,
+                    "axis_auto_r2":   _cv_auto_r2,
+                    "ymin_r2":        _cv_ymin_r2,
+                    "ymax_r2":        _cv_ymax_r2,
+                    "axis_auto_rmse": _cv_auto_rmse,
+                    "ymin_rmse":      _cv_ymin_rmse,
+                    "ymax_rmse":      _cv_ymax_rmse,
+                    "pva_axis_auto":  _cv_pva_auto,
+                    "pva_lo":         _cv_pva_lo,
+                    "pva_hi":         _cv_pva_hi,
+                    "pva_xlabel":     _cv_pva_xlabel,
+                    "pva_ylabel":     _cv_pva_ylabel,
+                }
+
+            _cv_style = st.session_state.get("cv_plot_style", {})
+
             for analyte in model_results.keys():
                 result = model_results[analyte]
-                plot_paths = []
-                captions = []
 
                 if model_name != "MLP":
-                    r2_plot = result.get("cv_r2_plot_path")
-                    rmse_plot = result.get("cv_rmse_plot_path")
-                    if r2_plot and os.path.exists(r2_plot):
-                        plot_paths.append(r2_plot)
-                        captions.append(f"CV R² vs n_components for {analyte}")
-                    if rmse_plot and os.path.exists(rmse_plot):
-                        plot_paths.append(rmse_plot)
-                        captions.append(f"CV RMSE vs n_components for {analyte}")
-
-                    if plot_paths:
-                        cols = st.columns(len(plot_paths))
-                        for i, (col, path) in enumerate(zip(cols, plot_paths)):
-                            with col:
-                                st.image(path, caption=captions[i], use_container_width=True)
+                    cv_data = result.get("cv_results", {})
+                    if cv_data:
+                        _xlabel_resolved = _cv_style.get("xlabel") or result.get("param_name", "n_components")
+                        _style_with_xlabel = {**_cv_style, "xlabel": _xlabel_resolved}
+                        fig_r2, fig_rmse = _build_cv_figures(
+                            param_range=result["param_range"],
+                            r2_cv=cv_data.get("pooled_r2_CV", []),
+                            r2_cal=cv_data.get("mean_r2_cal", []),
+                            rmse_cv=cv_data.get("pooled_rmse_CV", []),
+                            rmse_cal=cv_data.get("mean_rmse_cal", []),
+                            param_name=result.get("param_name", "n_components"),
+                            analyte=analyte,
+                            model_name=model_name,
+                            style=_style_with_xlabel,
+                        )
+                        _col_r2, _col_rmse = st.columns(2)
+                        with _col_r2:
+                            _buf = io.BytesIO()
+                            fig_r2.savefig(_buf, format="png", dpi=150, bbox_inches="tight")
+                            _buf.seek(0)
+                            st.image(_buf, caption=f"CV R² vs {result.get('param_name','n_components')} — {analyte}", use_container_width=True)
+                            # Update saved file so download reflects current style
+                            _r2_path = result.get("cv_r2_plot_path")
+                            if _r2_path:
+                                fig_r2.savefig(_r2_path, dpi=300, bbox_inches="tight")
+                                fig_r2.savefig(str(Path(_r2_path).with_suffix(".pdf")), bbox_inches="tight")
+                            plt.close(fig_r2)
+                        with _col_rmse:
+                            _buf = io.BytesIO()
+                            fig_rmse.savefig(_buf, format="png", dpi=150, bbox_inches="tight")
+                            _buf.seek(0)
+                            st.image(_buf, caption=f"CV RMSE vs {result.get('param_name','n_components')} — {analyte}", use_container_width=True)
+                            _rmse_path = result.get("cv_rmse_plot_path")
+                            if _rmse_path:
+                                fig_rmse.savefig(_rmse_path, dpi=300, bbox_inches="tight")
+                                fig_rmse.savefig(str(Path(_rmse_path).with_suffix(".pdf")), bbox_inches="tight")
+                            plt.close(fig_rmse)
 
                 # Interactive CV predicted vs actual
                 if result.get("y_true") is not None and result.get("y_pred_cv") is not None:
@@ -1247,6 +1344,25 @@ if tab == "Modeling":
                         class_labels=st.session_state.get("color_labels"),
                     )
                     st.plotly_chart(fig, use_container_width=True)
+
+                    # Static CV pred vs actual — matches downloaded version
+                    _fig_pva = _build_pred_vs_actual_fig(
+                        y_true=np.asarray(result["y_true"]).ravel(),
+                        y_pred=np.asarray(result["y_pred_cv"]).ravel(),
+                        title=f"CV Predicted vs Actual — {analyte}",
+                        class_labels=st.session_state.get("color_labels"),
+                        style=_cv_style,
+                    )
+                    _buf_pva = io.BytesIO()
+                    _fig_pva.savefig(_buf_pva, format="png", dpi=150, bbox_inches="tight")
+                    _buf_pva.seek(0)
+                    st.image(_buf_pva, caption=f"CV Pred vs Actual (static) — {analyte}", width=500)
+                    # Update saved file so download reflects current style
+                    _pva_path = result.get("cv_pred_plot_path")
+                    if _pva_path:
+                        _fig_pva.savefig(_pva_path, dpi=300, bbox_inches="tight")
+                        _fig_pva.savefig(str(Path(_pva_path).with_suffix(".pdf")), bbox_inches="tight")
+                    plt.close(_fig_pva)
 
             # === Diagnostic Plots ===
             st.subheader("📉 Loadings, Variables & Scores")
