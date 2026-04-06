@@ -110,7 +110,22 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
                       n_total_features.
     """
     param_name  = 'n_components'
-    param_range = list(range(1, max_lv + 1))
+
+    # Cap max_lv to the smallest CV training fold and feature count so sklearn
+    # never receives n_components > min(n_train, n_features).  This matters
+    # most when replicates are averaged and sample count is small.
+    from sklearn.model_selection import KFold, GroupKFold as _GroupKFold
+    _n_samples, _n_features = x.shape
+    _cv_temp   = (_GroupKFold(n_splits=n_folds) if groups is not None
+                  else KFold(n_splits=n_folds, shuffle=False))
+    _split_kw  = {"groups": groups} if groups is not None else {}
+    _min_train = min(len(tr) for tr, _ in _cv_temp.split(x, **_split_kw))
+    _safe_max  = min(max_lv, _min_train, _n_features)
+    if _safe_max < max_lv:
+        print(f"[PLS] max_lv capped from {max_lv} → {_safe_max} "
+              f"(min CV training fold: {_min_train}, features: {_n_features})")
+    param_range = list(range(1, _safe_max + 1))
+
     model       = PLSRegression(scale=False)
 
     # Variable-selection state — set by block selection hook when active
