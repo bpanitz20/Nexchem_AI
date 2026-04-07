@@ -528,6 +528,111 @@ if tab == "Data Loading":
                 f"(column: **{st.session_state['holdout_group_col']}**)"
             )
 
+        # === Append Dataset ===
+        st.subheader("➕ Append Dataset")
+
+        with st.expander("📁 Upload Append Raman Spectra (.zip of .spc files)"):
+            append_zip_file = st.file_uploader("Upload a .zip file", type="zip", key="append_zip")
+
+        with st.expander("📄 Upload Append Y-block (Excel with 'ID' column)"):
+            append_y_file = st.file_uploader("Upload append Y-block", type="xlsx", key="append_y")
+
+        if st.button("Load Append Data"):
+            if not append_zip_file or not append_y_file:
+                st.warning("Please upload BOTH the append .zip and the append Y-block file.")
+            else:
+                with tempfile.TemporaryDirectory() as _atmpdir:
+                    _azip_path = os.path.join(_atmpdir, "append_data.zip")
+                    with open(_azip_path, "wb") as _f:
+                        _f.write(append_zip_file.read())
+                    with zipfile.ZipFile(_azip_path, "r") as _zref:
+                        _zref.extractall(os.path.join(_atmpdir, "unzipped"))
+
+                    _aspectra, _ashifts, _ = load_raman(
+                        os.path.join(_atmpdir, "unzipped"),
+                        st.session_state["raw_spectra_dir"],
+                    )
+
+                # Axis compatibility check
+                _cur_spectra = st.session_state["raw_spectra"]
+                _first_val = next(iter(_cur_spectra.values()))
+                _first_spectrum = _first_val[0] if isinstance(_first_val, list) else _first_val
+                _cur_len = len(_first_spectrum.spectral_data)
+                if len(_ashifts) != _cur_len:
+                    st.error(
+                        f"Wavenumber axis mismatch: current dataset has {_cur_len} points, "
+                        f"append dataset has {len(_ashifts)}. Crop/resample to the same axis before appending."
+                    )
+                else:
+                    _ay_df = pd.read_excel(append_y_file)
+                    _ay_df.set_index("ID", inplace=True)
+                    st.session_state["_append_spectra"] = _aspectra
+                    st.session_state["_append_y"] = _ay_df
+                    st.success(f"Append data loaded: {len(_aspectra)} spectra, {_ay_df.shape[0]} Y rows.")
+
+        # Phase 2 & 3 — column picker + confirm merge
+        if "_append_spectra" in st.session_state and "_append_y" in st.session_state:
+            _cur_y   = st.session_state["y_block"]
+            _app_y   = st.session_state["_append_y"]
+            _cur_cols = set(_cur_y.columns.tolist())
+            _app_cols = set(_app_y.columns.tolist())
+            _all_cols = sorted(_cur_cols | _app_cols)
+            _shared   = sorted(_cur_cols & _app_cols)
+            _only_cur = sorted(_cur_cols - _app_cols)
+            _only_app = sorted(_app_cols - _cur_cols)
+
+            st.markdown("**Y-block column comparison**")
+            _col_info = pd.DataFrame({
+                "Column": _all_cols,
+                "In current dataset": ["✅" if c in _cur_cols else "—" for c in _all_cols],
+                "In append dataset":  ["✅" if c in _app_cols else "—" for c in _all_cols],
+            })
+            st.dataframe(_col_info, use_container_width=True, hide_index=True)
+
+            _selected_cols = st.multiselect(
+                "Columns to keep in merged Y-block:",
+                options=_all_cols,
+                default=_shared,
+            )
+            if _only_cur and any(c in _selected_cols for c in _only_cur):
+                st.info("Some selected columns are absent from the append dataset — those rows will have NaN.")
+            if _only_app and any(c in _selected_cols for c in _only_app):
+                st.info("Some selected columns are absent from the current dataset — those rows will have NaN.")
+
+            _app_spectra = st.session_state["_append_spectra"]
+            _overlap_ids = set(st.session_state["raw_spectra"].keys()) & set(_app_spectra.keys())
+            if _overlap_ids:
+                st.warning(f"Duplicate sample IDs found — append will overwrite {len(_overlap_ids)} existing spectra: {sorted(_overlap_ids)}")
+
+            if st.button("Confirm Merge"):
+                if not _selected_cols:
+                    st.error("Select at least one Y-block column to keep.")
+                else:
+                    _merged_spectra = {**st.session_state["raw_spectra"], **_app_spectra}
+                    _merged_y = pd.concat([_cur_y, _app_y], axis=0)[_selected_cols]
+
+                    st.session_state["raw_spectra"]          = _merged_spectra
+                    st.session_state["y_block"]              = _merged_y
+                    st.session_state["raw_spectra_original"] = _merged_spectra.copy()
+                    st.session_state["y_block_original"]     = _merged_y.copy()
+
+                    # Clear stale state
+                    st.session_state.pop("excluded_ids", None)
+                    st.session_state.pop("_append_spectra", None)
+                    st.session_state.pop("_append_y", None)
+                    if st.session_state.get("holdout_active", False):
+                        st.session_state["holdout_active"] = False
+                        for _k in ["raw_spectra_full", "y_block_full", "raw_spectra_holdout",
+                                   "y_block_holdout", "holdout_group", "holdout_group_col"]:
+                            st.session_state.pop(_k, None)
+                        st.warning("Hold-out split was reset after merge — re-apply it if needed.")
+
+                    st.success(
+                        f"✅ Datasets merged: {len(_merged_spectra)} total spectra, "
+                        f"{_merged_y.shape[0]} Y rows, {len(_selected_cols)} columns kept."
+                    )
+                    st.rerun()
+
 # === TAB 2: Preprocessing ===
 if tab == "Preprocessing":
     if "raw_spectra" not in st.session_state or "y_block" not in st.session_state:
