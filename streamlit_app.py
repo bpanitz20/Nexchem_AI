@@ -1472,6 +1472,31 @@ if tab == "Modeling":
             # === Diagnostic Plots ===
             st.subheader("📉 Loadings, Variables & Scores")
 
+            # ── VIP plot options ────────────────────────────────────────────
+            with st.expander("⚙️ VIP plot options", expanded=False):
+                _vs = st.session_state.get("vip_plot_style", {})
+                _vc1, _vc2, _vc3 = st.columns(3)
+                with _vc1:
+                    _vip_tick_fs  = st.number_input("Tick label size",  value=_vs.get("tick_fontsize",  10), min_value=6, step=1, key="vip_tick_fs")
+                    _vip_label_fs = st.number_input("Axis title size",   value=_vs.get("label_fontsize", 11), min_value=6, step=1, key="vip_label_fs")
+                with _vc2:
+                    _vip_top_n    = st.number_input("Top N to label (0 = none)", value=_vs.get("top_n", 0), min_value=0, step=1, key="vip_top_n")
+                with _vc3:
+                    _vip_xmin     = st.number_input("X-axis min (blank = auto)", value=_vs.get("xmin", 0), min_value=0, step=10, key="vip_xmin")
+                    _vip_xmax     = st.number_input("X-axis max (blank = auto)", value=_vs.get("xmax", 0), min_value=0, step=10, key="vip_xmax")
+                st.session_state["vip_plot_style"] = {
+                    "tick_fontsize":  _vip_tick_fs,
+                    "label_fontsize": _vip_label_fs,
+                    "top_n":          _vip_top_n,
+                    "xmin":           _vip_xmin,
+                    "xmax":           _vip_xmax,
+                }
+
+            _vip_style = st.session_state.get("vip_plot_style", {})
+            _vip_xlim  = None
+            if _vip_style.get("xmin") and _vip_style.get("xmax"):
+                _vip_xlim = (_vip_style["xmin"], _vip_style["xmax"])
+
             for analyte in model_results.keys():
                 result = model_results[analyte]
                 diag_plots = result.get("diagnostic_plots", [])
@@ -1487,7 +1512,36 @@ if tab == "Modeling":
                     for col, entry in zip(cols, pair):
                         if os.path.exists(entry["path"]):
                             with col:
-                                st.image(entry["path"], caption=entry["caption"], width=500)
+                                if entry["caption"] == "VIP Scores" and result.get("model_type") == "PLS":
+                                    from plotting.plot_regression import plot_vip_scores as _plot_vip
+                                    from models.vip import calculate_vip as _calc_vip
+                                    _vip_s = result.get("vip_scores")
+                                    _vip_a = result.get("vip_axis")
+                                    if _vip_s is None:
+                                        _vip_s = _calc_vip(result["model"])
+                                    if _vip_a is None:
+                                        _vip_a = st.session_state.get("cropped_axis")
+                                    _vfig = _plot_vip(
+                                        None, None,
+                                        _vip_a,
+                                        directory=None,
+                                        model_name="PLS",
+                                        analyte=analyte,
+                                        vip=_vip_s,
+                                        style={**_vip_style, "xlim": _vip_xlim},
+                                    )
+                                    _vbuf = io.BytesIO()
+                                    _vfig.savefig(_vbuf, format="png", dpi=150, bbox_inches="tight")
+                                    _vbuf.seek(0)
+                                    st.image(_vbuf, caption=entry["caption"], width=500)
+                                    # Save back to disk so PDF download reflects current style
+                                    _vip_path = result.get("vip_plot_path")
+                                    if _vip_path:
+                                        _vfig.savefig(_vip_path, dpi=300, bbox_inches="tight")
+                                        _vfig.savefig(str(Path(_vip_path).with_suffix(".pdf")), bbox_inches="tight")
+                                    plt.close(_vfig)
+                                else:
+                                    st.image(entry["path"], caption=entry["caption"], width=500)
 
             # === Download Modeling Figures ===
             _model_paths = []

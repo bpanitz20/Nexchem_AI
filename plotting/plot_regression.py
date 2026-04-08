@@ -427,8 +427,8 @@ def plot_pred_vs_actual_journal(
         y_true_cal, y_pred_cal,
         s=s.get("marker_size_cal", 40),
         facecolors='none',
-        edgecolors='#c0c0c0',
-        linewidths=0.9,
+        edgecolors='#ACACAC',
+        linewidths=1.5,
         alpha=s.get("alpha_cal", 0.7),
         label='Calibration',
         zorder=2,
@@ -440,7 +440,7 @@ def plot_pred_vs_actual_journal(
         s=s.get("marker_size_pred", 45),
         facecolors='none',
         edgecolors='#08306b',
-        linewidths=1.4,
+        linewidths=2.0,
         alpha=s.get("alpha_pred", 1.0),
         label='Prediction',
         zorder=3,
@@ -598,7 +598,7 @@ def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, t
 
 def plot_vip_scores(pls_model, x, axis, directory,
                     model_name, analyte,
-                    label_peaks=False, threshold=1.0, vip=None):
+                    label_peaks=False, threshold=1.0, vip=None, style=None):
     """
     Compute and plot VIP scores for a fitted PLS model.
 
@@ -609,78 +609,84 @@ def plot_vip_scores(pls_model, x, axis, directory,
         Defaults to 1.0 (conventional cutoff).
     vip : np.ndarray or None
         Pre-computed VIP scores.  When provided, ``pls_model`` and ``x`` are
-        ignored and the calculation step is skipped.  Pass pre-computed scores
-        here when plotting full-spectrum VIP from a preliminary model (e.g.
-        after block variable selection reduces X).
+        ignored and the calculation step is skipped.
+    style : dict or None
+        Optional display overrides:
+          tick_fontsize  — axis tick label size (default 10)
+          label_fontsize — axis title/label size (default 11)
+          top_n          — number of highest-VIP points to annotate (0 = none)
+          xlim           — (xmin, xmax) tuple or None for full range
+
+    Returns
+    -------
+    matplotlib.figure.Figure
     """
+    if style is None:
+        style = {}
+
     if vip is None:
         from models.vip import calculate_vip
         vip = calculate_vip(pls_model)
 
-    # Plot VIP scores
-    plt.figure(figsize=(10, 5))
-    plt.plot(axis, vip, label='VIP Scores')
-    plt.axhline(threshold, color='red', linestyle='--',
-                label=f'Significance Threshold ({threshold:.1f})')
-    
-    
-    if label_peaks:
-        
-        # ---- Label top N VIP peaks with minimum separation (cm^-1) ----
-        top_n = 10
-        min_sep = 10  # <-- change to 5 or 10 etc (in cm^-1)
-        
+    tick_fs  = style.get("tick_fontsize",  10)
+    label_fs = style.get("label_fontsize", 11)
+    top_n    = style.get("top_n", 0)
+    xlim     = style.get("xlim", None)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(axis, vip, label='VIP Scores')
+    ax.axhline(threshold, color='red', linestyle='--',
+               label=f'Significance Threshold ({threshold:.1f})')
+
+    if top_n and top_n > 0:
         axis_arr = np.asarray(axis)
-        vip_arr = np.asarray(vip)
-        
-        # Optional: only consider points within your plot window
-        in_window = (axis_arr >= 800) & (axis_arr <= 1800)
-        cand_idx = np.where(in_window)[0]
-        
-        # Sort candidate indices by VIP descending
+        vip_arr  = np.asarray(vip)
+
+        # Restrict candidates to the visible x window when xlim is set
+        if xlim and len(xlim) == 2 and xlim[0] is not None and xlim[1] is not None:
+            in_window = (axis_arr >= xlim[0]) & (axis_arr <= xlim[1])
+        else:
+            in_window = np.ones(len(axis_arr), dtype=bool)
+        cand_idx   = np.where(in_window)[0]
         cand_sorted = cand_idx[np.argsort(vip_arr[cand_idx])[::-1]]
-        
+
+        min_sep  = 10  # minimum separation in axis units
         selected = []
         for i in cand_sorted:
             if all(abs(axis_arr[i] - axis_arr[j]) >= min_sep for j in selected):
                 selected.append(i)
             if len(selected) == top_n:
                 break
-        
-        # Annotate selected peaks
+
         for i in selected:
-            plt.scatter(axis_arr[i], vip_arr[i], color="black", s=20, zorder=5)
-            plt.text(
+            ax.scatter(axis_arr[i], vip_arr[i], color="black", s=20, zorder=5)
+            ax.text(
                 axis_arr[i],
                 vip_arr[i] + 0.08,
                 f"{int(round(axis_arr[i]))}",
-                fontsize=9,
+                fontsize=tick_fs,
                 ha="center",
                 va="bottom",
                 zorder=6,
             )
-        
-    
-    plt.xlabel('Raman Shift (cm⁻¹)')
-    #plt.xlim(800, 1801)
-    #plt.ylim(0, 3)
-    
-    #plt.xticks(np.arange(800, 1801, 200))
-    #plt.yticks(np.arange(0, 3.1, 0.5))
-        
-    plt.ylabel('VIP Scores')
-    plt.title(f'VIP Scores for {analyte}')
-    plt.legend()
-    plt.grid(True, linestyle="-", linewidth=0.4, alpha=0.3)
-    plt.tight_layout()
-    
-    
-    os.makedirs(directory, exist_ok=True)
-    out_base = os.path.join(directory, f"VIP_Scores_{model_name}_{analyte}")
-    plt.savefig(out_base + ".pdf")          # vector
-    plt.savefig(out_base + ".png", dpi=300) # raster backup
-        
-    plt.close()
+
+    ax.set_xlabel('Raman Shift (cm⁻¹)', fontsize=label_fs)
+    ax.set_ylabel('VIP Scores',          fontsize=label_fs)
+    ax.set_title(f'VIP Scores for {analyte}', fontsize=label_fs)
+    ax.tick_params(labelsize=tick_fs)
+    if xlim and len(xlim) == 2 and xlim[0] is not None and xlim[1] is not None:
+        ax.set_xlim(xlim)
+    ax.legend()
+    ax.grid(True, linestyle="-", linewidth=0.4, alpha=0.3)
+    fig.tight_layout()
+
+    if directory is not None:
+        os.makedirs(directory, exist_ok=True)
+        out_base = os.path.join(directory, f"VIP_Scores_{model_name}_{analyte}")
+        fig.savefig(out_base + ".pdf")
+        fig.savefig(out_base + ".png", dpi=300)
+
+    return fig
     
     
 def plot_t2_q_residuals(pls_model, X, y, analyte, directory, model_name="PLS",

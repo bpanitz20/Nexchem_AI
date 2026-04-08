@@ -330,14 +330,18 @@ def plot_pls_results(results, x, y, axis, directory, analyte,
     # For standard PLS (no selection), compute VIP from the final model.
     _sel = results.get('selection')
     if _sel is not None and _sel.vip_scores_full is not None:
-        plot_vip_scores(
-            None, None,
-            _sel.axis_full,
-            directory, "PLS", analyte,
-            vip=_sel.vip_scores_full,
-        )
+        _vip_scores = _sel.vip_scores_full
+        _vip_axis   = _sel.axis_full
     else:
-        plot_vip_scores(model, x, axis, directory, "PLS", analyte)
+        from models.vip import calculate_vip
+        _vip_scores = calculate_vip(model)
+        _vip_axis   = np.asarray(axis)
+
+    plot_vip_scores(None, None, _vip_axis, directory, "PLS", analyte, vip=_vip_scores)
+
+    # Store for app-side re-rendering with user style options
+    results['vip_scores'] = _vip_scores
+    results['vip_axis']   = _vip_axis
 
     scoreplot_path = None
     if final_param >= 2:
