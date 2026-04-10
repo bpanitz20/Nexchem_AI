@@ -195,28 +195,28 @@ def plot_pred_vs_actual_paper(
 
     # ---- style map ----
     style_map = {
-        "2016":        {"marker": "D", "color": "red"},
-        "2022-2023":   {"marker": "s", "color": "lightgreen"},
-        "2023-2024":   {"marker": "^", "color": "blue"},
-        "2018":        {"marker": "v", "color": "turquoise"},
-        "2017":        {"marker": "*", "color": "pink"},
-        "2022":        {"marker": "o", "color": "gold"},
-        "2023":        {"marker": "D", "color": "darkgreen"},
-        "2021-2022":   {"marker": "s", "color": "darkblue"},
+        "Spring 2016":        {"marker": "D", "color": "red"},
+        "Spring 2018":   {"marker": "s", "color": "lightgreen"},
+        "Spring 2017":   {"marker": "^", "color": "blue"},
+        "Spring 2022":    {"marker": "*", "color": "pink"}     ,
+        "Spring 2023":        {"marker": "o", "color": "gold"},
+        "Fall 2021":        {"marker": "D", "color": "darkgreen"},
+        "Fall 2022":        {"marker": "s", "color": "darkblue"},
+        "Fall 2023":   {"marker": "^", "color": "maroon"},
     }
 
     # Desired legend order
     legend_order = [
         "Fit",
         "1:1",
-        "2016",
-        "2022-2023",
-        "2023-2024",
-        "2018",
-        "2017",
-        "2022",
-        "2023",
-        "2021-2022"
+        "Spring 2016",
+        "Spring 2018",
+        "Spring 2017",
+        "Spring 2022",
+        "Spring 2023",
+        "Fall 2021",
+        "Fall 2022",
+        "Fall 2023"
     ]
 
     lo = float(np.nanmin([y_true.min(), y_pred.min()]))
@@ -225,9 +225,9 @@ def plot_pred_vs_actual_paper(
     # ---- 1:1 line ----
     line_ideal, = ax.plot(
         [lo, hi], [lo, hi],
-        linestyle="--",
+        linestyle="-",
         linewidth=1.2,
-        color="green",
+        color="lightgreen",
         label="1:1",
         zorder=1
     )
@@ -334,7 +334,8 @@ def plot_pred_vs_actual_paper(
         axis='both',
         direction='in',
         length=6,
-        width=1
+        width=1,
+        labelsize=15,
     )
 
     fig.tight_layout()
@@ -559,17 +560,81 @@ def plot_cv_performance(param_range, r2_cv, r2_cal, rmse_cv, rmse_cal, param_nam
     fig_rmse.savefig(_rmse_base + '.pdf', bbox_inches='tight')
     plt.close(fig_rmse)
 
-def plot_coefficients(axis, coefficients, directory, model_name, analyte):
-    plt.figure(figsize=(10, 6))
-    plt.plot(axis, coefficients.flatten(), color='blue')
-    plt.xlabel('Features')
-    plt.ylabel('Regression Coefficients')
-    plt.title(f'Regression Coefficients ({model_name})')
-    plt.grid(True)
-    _base = os.path.join(directory, f"PLS_Coefficients_{analyte}")
-    plt.savefig(_base + ".png", dpi=300, bbox_inches="tight")
-    plt.savefig(_base + ".pdf", bbox_inches="tight")
-    plt.close()
+def plot_coefficients(axis, coefficients, directory, model_name, analyte, style=None):
+    """
+    Plot PLS regression coefficients.
+
+    Parameters
+    ----------
+    style : dict or None
+        Optional display overrides:
+          tick_fontsize  — axis tick label size (default 10)
+          label_fontsize — axis title/label size (default 11)
+          top_n          — number of highest-|coef| points to annotate (0 = none)
+          xlim           — (xmin, xmax) tuple or None for full range
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if style is None:
+        style = {}
+
+    tick_fs  = style.get("tick_fontsize",  10)
+    label_fs = style.get("label_fontsize", 11)
+    top_n    = style.get("top_n", 0)
+    xlim     = style.get("xlim", None)
+
+    coef = np.asarray(coefficients).flatten()
+    axis_arr = np.asarray(axis)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(axis_arr, coef, color='#1f77b4')
+    ax.axhline(0, color='black', linewidth=1.2, dashes=(8, 6), zorder=3)
+
+    if top_n and top_n > 0:
+        if xlim and len(xlim) == 2 and xlim[0] is not None and xlim[1] is not None:
+            in_window = (axis_arr >= xlim[0]) & (axis_arr <= xlim[1])
+        else:
+            in_window = np.ones(len(axis_arr), dtype=bool)
+        cand_idx    = np.where(in_window)[0]
+        cand_sorted = cand_idx[np.argsort(np.abs(coef[cand_idx]))[::-1]]
+
+        min_sep  = 10
+        selected = []
+        for i in cand_sorted:
+            if all(abs(axis_arr[i] - axis_arr[j]) >= min_sep for j in selected):
+                selected.append(i)
+            if len(selected) == top_n:
+                break
+
+        for i in selected:
+            ax.scatter(axis_arr[i], coef[i], color="black", s=20, zorder=5)
+            ax.text(
+                axis_arr[i],
+                coef[i] + 0.02 * (coef.max() - coef.min()),
+                f"{int(round(axis_arr[i]))}",
+                fontsize=tick_fs,
+                ha="center",
+                va="bottom",
+                zorder=6,
+            )
+
+    ax.set_xlabel('Raman Shift (cm⁻¹)', fontsize=label_fs)
+    ax.set_ylabel('Regression Coefficients',  fontsize=label_fs)
+    ax.set_title(f'Regression Coefficients ({model_name}) — {analyte}', fontsize=label_fs)
+    ax.tick_params(axis='both', labelsize=tick_fs, direction='in', length=6, width=1)
+    if xlim and len(xlim) == 2 and xlim[0] is not None and xlim[1] is not None:
+        ax.set_xlim(xlim)
+    ax.grid(True, linewidth=0.4, alpha=0.5)
+    fig.tight_layout()
+
+    if directory is not None:
+        _base = os.path.join(directory, f"PLS_Coefficients_{analyte}")
+        fig.savefig(_base + ".png", dpi=300, bbox_inches="tight")
+        fig.savefig(_base + ".pdf", bbox_inches="tight")
+
+    return fig
 
 def plot_feature_importance(model, x, y, axis, directory, model_name, analyte, top_n=20):
     """

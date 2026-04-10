@@ -324,6 +324,10 @@ def plot_pls_results(results, x, y, axis, directory, analyte,
 
     plot_coefficients(axis, model.coef_, directory, "PLS", analyte)
 
+    # Store for app-side re-rendering with user style options
+    results['coef_array'] = np.asarray(model.coef_).flatten()
+    results['coef_axis']  = np.asarray(axis)
+
     # VIP plot: when block selection was active use the full-spectrum pre-computed
     # scores (stored in SelectionResult from the preliminary model) plotted on
     # the full original axis.  This avoids gap artefacts from the reduced axis.
