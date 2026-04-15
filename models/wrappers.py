@@ -698,12 +698,9 @@ def PCA_model(
     n_components = max(n_components, required)
 
     # Standardize
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
     # Run PCA
     pca = PCA(n_components=n_components)
-    X_pca = pca.fit_transform(X_scaled)
+    X_pca = pca.fit_transform(X)
     var_ratio = pca.explained_variance_ratio_
 
     # Convert to 0-based for indexing

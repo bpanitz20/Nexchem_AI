@@ -113,13 +113,14 @@ def _build_pred_vs_actual_fig(y_true, y_pred, title, class_labels=None, style=No
     style : dict or None
         Recognised keys: tick_fontsize, label_fontsize,
         pva_axis_auto, pva_lo, pva_hi, pva_xlabel, pva_ylabel,
-        fig_width, fig_height
+        fig_width, fig_height, point_size
     """
     s = style or {}
-    tick_fs  = s.get("tick_fontsize",  10)
-    label_fs = s.get("label_fontsize", 12)
-    fw       = s.get("fig_width",  8.0)
-    fh       = s.get("fig_height", 6.0)
+    tick_fs    = s.get("tick_fontsize",  10)
+    label_fs   = s.get("label_fontsize", 12)
+    fw         = s.get("pva_fig_width",  s.get("fig_width",  8.0))
+    fh         = s.get("pva_fig_height", s.get("fig_height", 6.0))
+    point_size = s.get("point_size", 50)
 
     fig, ax = plt.subplots(figsize=(fw, fh))
 
@@ -136,12 +137,13 @@ def _build_pred_vs_actual_fig(y_true, y_pred, title, class_labels=None, style=No
                 y_true[indices], y_pred[indices],
                 c=[colors[idx % len(colors)]],
                 marker=markers[idx % len(markers)],
+                s=point_size,
                 alpha=0.7,
                 label=str(class_names[class_val])
             )
         ax.legend(title="Class", bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=tick_fs)
     else:
-        ax.scatter(y_true, y_pred, color='blue', alpha=0.6, label='Data')
+        ax.scatter(y_true, y_pred, color='blue', alpha=0.6, s=point_size, label='Data')
 
     ax.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()],
             color='red', linestyle='--', label='Ideal')
@@ -584,6 +586,7 @@ def plot_coefficients(axis, coefficients, directory, model_name, analyte, style=
     label_fs = style.get("label_fontsize", 11)
     top_n    = style.get("top_n", 0)
     xlim     = style.get("xlim", None)
+    ylim     = style.get("ylim", None)
 
     coef = np.asarray(coefficients).flatten()
     axis_arr = np.asarray(axis)
@@ -626,6 +629,8 @@ def plot_coefficients(axis, coefficients, directory, model_name, analyte, style=
     ax.tick_params(axis='both', labelsize=tick_fs, direction='in', length=6, width=1)
     if xlim and len(xlim) == 2 and xlim[0] is not None and xlim[1] is not None:
         ax.set_xlim(xlim)
+    if ylim and len(ylim) == 2 and ylim[0] is not None and ylim[1] is not None:
+        ax.set_ylim(ylim)
     ax.grid(True, linewidth=0.4, alpha=0.5)
     fig.tight_layout()
 
@@ -681,6 +686,7 @@ def plot_vip_scores(pls_model, x, axis, directory,
           label_fontsize — axis title/label size (default 11)
           top_n          — number of highest-VIP points to annotate (0 = none)
           xlim           — (xmin, xmax) tuple or None for full range
+          ylim           — (ymin, ymax) tuple or None for full range
 
     Returns
     -------
@@ -697,6 +703,7 @@ def plot_vip_scores(pls_model, x, axis, directory,
     label_fs = style.get("label_fontsize", 11)
     top_n    = style.get("top_n", 0)
     xlim     = style.get("xlim", None)
+    ylim     = style.get("ylim", None)
 
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(axis, vip, label='VIP Scores')
@@ -741,6 +748,8 @@ def plot_vip_scores(pls_model, x, axis, directory,
     ax.tick_params(labelsize=tick_fs)
     if xlim and len(xlim) == 2 and xlim[0] is not None and xlim[1] is not None:
         ax.set_xlim(xlim)
+    if ylim and len(ylim) == 2 and ylim[0] is not None and ylim[1] is not None:
+        ax.set_ylim(ylim)
     ax.legend()
     ax.grid(True, linestyle="-", linewidth=0.4, alpha=0.3)
     fig.tight_layout()

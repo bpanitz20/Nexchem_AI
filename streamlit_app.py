@@ -323,8 +323,8 @@ if tab == "Data Loading":
         def sort_key(sample_id):
             match = re.match(r"(\d+)-(\d+)", sample_id)
             if match:
-                return int(match.group(1)), int(match.group(2))
-            return sample_id  # fallback
+                return (0, int(match.group(1)), int(match.group(2)))
+            return (1, sample_id, 0)
 
         available_ids = sorted(sample_spectra.keys(), key=sort_key)
         selected_ids = st.multiselect("Select sample(s) to overlay", available_ids)
@@ -1359,19 +1359,6 @@ if tab == "Modeling":
                     with _rm2:
                         _cv_ymax_rmse = st.number_input("RMSE Y max", value=float(_cs.get("ymax_rmse") or 1.0), format="%.3f", key="cv_ymax_rmse")
 
-                # Pred vs actual style (shared font sizes, axis range)
-                st.markdown("**CV Pred vs Actual (static)**")
-                _cv_pva_auto = st.checkbox("Auto axis range (pred vs actual)", value=_cs.get("pva_axis_auto", True), key="cv_pva_auto")
-                _cv_pva_lo = _cv_pva_hi = None
-                if not _cv_pva_auto:
-                    _pa1, _pa2 = st.columns(2)
-                    with _pa1:
-                        _cv_pva_lo = st.number_input("Pred vs actual min", value=float(_cs.get("pva_lo") or 0.0), format="%.3f", key="cv_pva_lo")
-                    with _pa2:
-                        _cv_pva_hi = st.number_input("Pred vs actual max", value=float(_cs.get("pva_hi") or 1.0), format="%.3f", key="cv_pva_hi")
-                _cv_pva_xlabel = st.text_input("Pred vs actual X label", value=_cs.get("pva_xlabel", "Actual Values"),   key="cv_pva_xlabel")
-                _cv_pva_ylabel = st.text_input("Pred vs actual Y label", value=_cs.get("pva_ylabel", "Predicted Values"), key="cv_pva_ylabel")
-
                 st.session_state["cv_plot_style"] = {
                     "tick_fontsize":  _cv_tick_fs,
                     "label_fontsize": _cv_label_fs,
@@ -1388,17 +1375,58 @@ if tab == "Modeling":
                     "axis_auto_rmse": _cv_auto_rmse,
                     "ymin_rmse":      _cv_ymin_rmse,
                     "ymax_rmse":      _cv_ymax_rmse,
-                    "pva_axis_auto":  _cv_pva_auto,
-                    "pva_lo":         _cv_pva_lo,
-                    "pva_hi":         _cv_pva_hi,
-                    "pva_xlabel":     _cv_pva_xlabel,
-                    "pva_ylabel":     _cv_pva_ylabel,
                 }
 
             _cv_style = st.session_state.get("cv_plot_style", {})
 
+            # ── Static Pred vs Actual options ──────────────────────────────
+            with st.expander("⚙️ Static Pred vs Actual options", expanded=False):
+                _ps = st.session_state.get("pva_plot_style", {})
+                _pa1, _pa2, _pa3 = st.columns(3)
+                with _pa1:
+                    _pva_tick_fs  = st.number_input("Tick label size",  value=_ps.get("tick_fontsize",  10), min_value=6, step=1, key="pva_tick_fs")
+                    _pva_label_fs = st.number_input("Axis label size",  value=_ps.get("label_fontsize", 12), min_value=6, step=1, key="pva_label_fs")
+                with _pa2:
+                    _pva_pt_size = st.number_input("Point size", value=_ps.get("point_size", 50), min_value=1, step=1, key="pva_pt_size")
+                with _pa3:
+                    _pva_fw_col, _pva_fh_col = st.columns(2)
+                    with _pva_fw_col:
+                        _pva_fw = st.number_input("Fig width",  value=_ps.get("pva_fig_width",  8.0), min_value=2.0, step=0.5, format="%.1f", key="pva_fw")
+                    with _pva_fh_col:
+                        _pva_fh = st.number_input("Fig height", value=_ps.get("pva_fig_height", 6.0), min_value=2.0, step=0.5, format="%.1f", key="pva_fh")
+                _pva_auto = st.checkbox("Auto axis range", value=_ps.get("pva_axis_auto", True), key="pva_axis_auto")
+                _pva_lo = _pva_hi = None
+                if not _pva_auto:
+                    _plo1, _plo2 = st.columns(2)
+                    with _plo1:
+                        _pva_lo = st.number_input("Axis min", value=float(_ps.get("pva_lo") or 0.0), format="%.3f", key="pva_lo")
+                    with _plo2:
+                        _pva_hi = st.number_input("Axis max", value=float(_ps.get("pva_hi") or 1.0), format="%.3f", key="pva_hi")
+                _px1, _px2 = st.columns(2)
+                with _px1:
+                    _pva_xlabel = st.text_input("X axis label", value=_ps.get("pva_xlabel", "Actual Values"),    key="pva_xlabel")
+                with _px2:
+                    _pva_ylabel = st.text_input("Y axis label", value=_ps.get("pva_ylabel", "Predicted Values"), key="pva_ylabel")
+
+                st.session_state["pva_plot_style"] = {
+                    "tick_fontsize":  _pva_tick_fs,
+                    "label_fontsize": _pva_label_fs,
+                    "point_size":     _pva_pt_size,
+                    "pva_fig_width":  _pva_fw,
+                    "pva_fig_height": _pva_fh,
+                    "pva_axis_auto":  _pva_auto,
+                    "pva_lo":         _pva_lo,
+                    "pva_hi":         _pva_hi,
+                    "pva_xlabel":     _pva_xlabel,
+                    "pva_ylabel":     _pva_ylabel,
+                }
+
+            _pva_style = st.session_state.get("pva_plot_style", {})
+
             for analyte in model_results.keys():
                 result = model_results[analyte]
+
+                st.subheader(f"🔬 {analyte}")
 
                 if model_name != "MLP":
                     cv_data = result.get("cv_results", {})
@@ -1450,37 +1478,45 @@ if tab == "Modeling":
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # Static CV pred vs actual — matches downloaded version
-                    _fig_pva = _build_pred_vs_actual_fig(
-                        y_true=np.asarray(result["y_true"]).ravel(),
-                        y_pred=np.asarray(result["y_pred_cv"]).ravel(),
-                        title=f"CV Predicted vs Actual — {analyte}",
-                        class_labels=st.session_state.get("color_labels"),
-                        style=_cv_style,
+                    _show_static = st.checkbox(
+                        "Show static pred vs actual",
+                        value=False,
+                        key=f"show_static_pva_{analyte}",
                     )
-                    _buf_pva = io.BytesIO()
-                    _fig_pva.savefig(_buf_pva, format="png", dpi=150, bbox_inches="tight")
-                    _buf_pva.seek(0)
-                    st.image(_buf_pva, caption=f"CV Pred vs Actual (static) — {analyte}", width=500)
-                    # Update saved file so download reflects current style
-                    _pva_path = result.get("cv_pred_plot_path")
-                    if _pva_path:
-                        _fig_pva.savefig(_pva_path, dpi=300, bbox_inches="tight")
-                        _fig_pva.savefig(str(Path(_pva_path).with_suffix(".pdf")), bbox_inches="tight")
-                    plt.close(_fig_pva)
+                    if _show_static:
+                        # Static CV pred vs actual — matches downloaded version
+                        _fig_pva = _build_pred_vs_actual_fig(
+                            y_true=np.asarray(result["y_true"]).ravel(),
+                            y_pred=np.asarray(result["y_pred_cv"]).ravel(),
+                            title=f"CV Predicted vs Actual — {analyte}",
+                            class_labels=st.session_state.get("color_labels"),
+                            style=_pva_style,
+                        )
+                        _buf_pva = io.BytesIO()
+                        _fig_pva.savefig(_buf_pva, format="png", dpi=150, bbox_inches="tight")
+                        _buf_pva.seek(0)
+                        st.image(_buf_pva, caption=f"CV Pred vs Actual (static) — {analyte}", width=500)
+                        # Update saved file so download reflects current style
+                        _pva_path = result.get("cv_pred_plot_path")
+                        if _pva_path:
+                            _fig_pva.savefig(_pva_path, dpi=300, bbox_inches="tight")
+                            _fig_pva.savefig(str(Path(_pva_path).with_suffix(".pdf")), bbox_inches="tight")
+                        plt.close(_fig_pva)
 
-                    # --- TEMP: paper figure ---
-                    plot_pred_vs_actual_paper(
-                        y_true=np.asarray(result["y_true"]).ravel(),
-                        y_pred=np.asarray(result["y_pred_cv"]).ravel(),
-                        directory=st.session_state.get("outdir"),
-                        filename="fig_paper.png",
-                        title=f"CV Predicted vs Actual — {analyte}",
-                        class_labels=st.session_state.get("color_labels"),
-                    )
-                    _paper_path = os.path.join(st.session_state.get("outdir"), "fig_paper.png")
-                    st.image(_paper_path, caption=f"Paper plot — {analyte}", width=500)
-                    # --- END TEMP ---
+                        # --- TEMP: paper figure ---
+                        plot_pred_vs_actual_paper(
+                            y_true=np.asarray(result["y_true"]).ravel(),
+                            y_pred=np.asarray(result["y_pred_cv"]).ravel(),
+                            directory=st.session_state.get("outdir"),
+                            filename="fig_paper.png",
+                            title=f"CV Predicted vs Actual — {analyte}",
+                            class_labels=st.session_state.get("color_labels"),
+                        )
+                        _paper_path = os.path.join(st.session_state.get("outdir"), "fig_paper.png")
+                        st.image(_paper_path, caption=f"Paper plot — {analyte}", width=500)
+                        # --- END TEMP ---
+
+                st.divider()
 
             # === Diagnostic Plots ===
             st.subheader("📉 Loadings, Variables & Scores")
@@ -1509,20 +1545,27 @@ if tab == "Modeling":
                     with _vc2:
                         _vip_top_n    = st.number_input("Top N to label (0 = none)", value=_vs.get("top_n", 0), min_value=0, step=1, key="vip_top_n")
                     with _vc3:
-                        _vip_xmin     = st.number_input("X-axis min (blank = auto)", value=_vs.get("xmin", 0), min_value=0, step=10, key="vip_xmin")
-                        _vip_xmax     = st.number_input("X-axis max (blank = auto)", value=_vs.get("xmax", 0), min_value=0, step=10, key="vip_xmax")
+                        _vip_xmin     = st.number_input("X-axis min (0 = auto)", value=_vs.get("xmin", 0), min_value=0, step=10, key="vip_xmin")
+                        _vip_xmax     = st.number_input("X-axis max (0 = auto)", value=_vs.get("xmax", 0), min_value=0, step=10, key="vip_xmax")
+                        _vip_ymin     = st.number_input("Y-axis min (0 = auto)", value=_vs.get("ymin", 0.0), step=0.1, format="%.2f", key="vip_ymin")
+                        _vip_ymax     = st.number_input("Y-axis max (0 = auto)", value=_vs.get("ymax", 0.0), step=0.1, format="%.2f", key="vip_ymax")
                     st.session_state["vip_plot_style"] = {
                         "tick_fontsize":  _vip_tick_fs,
                         "label_fontsize": _vip_label_fs,
                         "top_n":          _vip_top_n,
                         "xmin":           _vip_xmin,
                         "xmax":           _vip_xmax,
+                        "ymin":           _vip_ymin,
+                        "ymax":           _vip_ymax,
                     }
 
             _vip_style = st.session_state.get("vip_plot_style", {})
             _vip_xlim  = None
             if _vip_style.get("xmin") and _vip_style.get("xmax"):
                 _vip_xlim = (_vip_style["xmin"], _vip_style["xmax"])
+            _vip_ylim  = None
+            if _vip_style.get("ymin") and _vip_style.get("ymax"):
+                _vip_ylim = (_vip_style["ymin"], _vip_style["ymax"])
 
             # ── Coef plot options (only visible when Coef is selected) ───────
             if _selected_diag == "Regression Coefficients":
@@ -1535,20 +1578,27 @@ if tab == "Modeling":
                     with _cc2:
                         _coef_top_n    = st.number_input("Top N to label (0 = none)", value=_cs2.get("top_n", 0), min_value=0, step=1, key="coef_top_n")
                     with _cc3:
-                        _coef_xmin     = st.number_input("X-axis min (blank = auto)", value=_cs2.get("xmin", 0), min_value=0, step=10, key="coef_xmin")
-                        _coef_xmax     = st.number_input("X-axis max (blank = auto)", value=_cs2.get("xmax", 0), min_value=0, step=10, key="coef_xmax")
+                        _coef_xmin     = st.number_input("X-axis min (0 = auto)", value=_cs2.get("xmin", 0), min_value=0, step=10, key="coef_xmin")
+                        _coef_xmax     = st.number_input("X-axis max (0 = auto)", value=_cs2.get("xmax", 0), min_value=0, step=10, key="coef_xmax")
+                        _coef_ymin     = st.number_input("Y-axis min (0 = auto)", value=_cs2.get("ymin", 0.0), step=0.001, format="%.3f", key="coef_ymin")
+                        _coef_ymax     = st.number_input("Y-axis max (0 = auto)", value=_cs2.get("ymax", 0.0), step=0.001, format="%.3f", key="coef_ymax")
                     st.session_state["coef_plot_style"] = {
                         "tick_fontsize":  _coef_tick_fs,
                         "label_fontsize": _coef_label_fs,
                         "top_n":          _coef_top_n,
                         "xmin":           _coef_xmin,
                         "xmax":           _coef_xmax,
+                        "ymin":           _coef_ymin,
+                        "ymax":           _coef_ymax,
                     }
 
             _coef_style = st.session_state.get("coef_plot_style", {})
             _coef_xlim  = None
             if _coef_style.get("xmin") and _coef_style.get("xmax"):
                 _coef_xlim = (_coef_style["xmin"], _coef_style["xmax"])
+            _coef_ylim  = None
+            if _coef_style.get("ymin") and _coef_style.get("ymax"):
+                _coef_ylim = (_coef_style["ymin"], _coef_style["ymax"])
 
             for analyte in model_results.keys():
                 result = model_results[analyte]
@@ -1575,7 +1625,7 @@ if tab == "Modeling":
                         model_name="PLS",
                         analyte=analyte,
                         vip=_vip_s,
-                        style={**_vip_style, "xlim": _vip_xlim},
+                        style={**_vip_style, "xlim": _vip_xlim, "ylim": _vip_ylim},
                     )
                     _vbuf = io.BytesIO()
                     _vfig.savefig(_vbuf, format="png", dpi=150, bbox_inches="tight")
@@ -1600,7 +1650,7 @@ if tab == "Modeling":
                         directory=None,
                         model_name="PLS",
                         analyte=analyte,
-                        style={**_coef_style, "xlim": _coef_xlim},
+                        style={**_coef_style, "xlim": _coef_xlim, "ylim": _coef_ylim},
                     )
                     _cbuf = io.BytesIO()
                     _cfig.savefig(_cbuf, format="png", dpi=150, bbox_inches="tight")
