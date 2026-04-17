@@ -70,8 +70,10 @@ def KFold_CV(x, y, model, param_name,
     mean_mse_CV = []
     mean_rmse_cal = []
     all_predictions = {}
-    pooled_r2_CV = []       
+    pooled_r2_CV = []
     pooled_rmse_CV = []
+    all_r2_folds  = {}   # per-fold R² arrays keyed by param value
+    all_rmse_folds = {}  # per-fold RMSE arrays keyed by param value
     
     # CV fold tracking
     fold_assignments = {} if sample_ids is not None else None
@@ -83,9 +85,11 @@ def KFold_CV(x, y, model, param_name,
        
        # Get cross-validated scores
        r2_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=r2_scorer, **cv_kwargs)
-       mse_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=mse_scorer, **cv_kwargs)      
+       mse_scores = cross_val_score(model, x, y_centered, cv=cv, scoring=mse_scorer, **cv_kwargs)
        mean_r2_CV.append(np.mean(r2_scores))
-       mean_mse_CV.append(np.mean(mse_scores))     
+       mean_mse_CV.append(np.mean(mse_scores))
+       all_r2_folds[param_value]   = r2_scores
+       all_rmse_folds[param_value] = np.sqrt(np.abs(mse_scores))     
        
         # Get cross-validated predictions (existing)
        yhat_cv = cross_val_predict(model, x, y_centered, cv=cv, **cv_kwargs)
@@ -148,6 +152,8 @@ def KFold_CV(x, y, model, param_name,
       'fold_df': fold_df,
       'pooled_r2_CV': pooled_r2_CV,
       'pooled_rmse_CV': pooled_rmse_CV,
+      'r2_fold_scores':   all_r2_folds[optimal_param],
+      'rmse_fold_scores': all_rmse_folds[optimal_param],
   }
 
 
@@ -202,11 +208,20 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
     cv_r2_pooled = None
     cv_rmse_pooled = None
     cv_table_df = None
+    rmse_fold_scores = None
     if task == 'regression':
         Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y_centered, cv=cv, method='predict', **cv_kwargs)
         Y_proba_CV = None
         cv_r2_pooled = r2_score(y_centered, Y_pred_CV)
         cv_rmse_pooled = np.sqrt(mean_squared_error(y_centered, Y_pred_CV))
+        # Extract per-fold RMSE at the best parameter set
+        # scoring = neg_root_mean_squared_error → negate to get positive RMSE
+        best_idx = grid_search.best_index_
+        n_splits = cv.get_n_splits()
+        rmse_fold_scores = np.array([
+            -grid_search.cv_results_[f"split{k}_test_score"][best_idx]
+            for k in range(n_splits)
+        ])
         
     else:
         Y_pred_CV = cross_val_predict(grid_search.best_estimator_, x, y, cv=cv, method='predict', **cv_kwargs)
@@ -236,6 +251,8 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
         'best_estimator': grid_search.best_estimator_,
         'fold_df': fold_df,
         'cv_r2_pooled': cv_r2_pooled,
-        'cv_rmse_pooled': cv_rmse_pooled
+        'cv_rmse_pooled': cv_rmse_pooled,
+        'r2_fold_scores':   None,           # GridSearchCV ran single scorer; no per-fold R²
+        'rmse_fold_scores': rmse_fold_scores,
     }
 

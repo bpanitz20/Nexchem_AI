@@ -17,7 +17,7 @@ from loaders.raman_loader import load_raman
 import matplotlib.pyplot as plt
 import re
 from plotting.plot_raw import plot_spectra_colored_by_analyte
-from plotting.plot_regression import plot_pred_vs_actual_interactive, plot_pred_vs_actual_journal, _build_cv_figures, _build_pred_vs_actual_fig, plot_pred_vs_actual_paper
+from plotting.plot_regression import plot_pred_vs_actual_interactive, plot_pred_vs_actual_journal, _build_cv_figures, _build_pred_vs_actual_fig, plot_pred_vs_actual_paper, plot_analyte_correlation_map
 from preprocessors.raman_preprocess import (
     preprocess_savgol_snv_mc,
     group_preprocess_savgol_snv_mc,
@@ -248,6 +248,26 @@ if tab == "Data Loading":
         # Optional: Display Y-block data
         with st.expander("🔬 Preview GC-MS Y-block"):
             st.dataframe(y_df, use_container_width=True)
+
+        # Analyte correlation heatmap
+        _analyte_cols = [c for c in y_df.columns if c != "Class"]
+        if len(_analyte_cols) >= 2:
+            with st.expander("📊 Analyte Correlation Map", expanded=False):
+                _corr_fig = plot_analyte_correlation_map(y_df[_analyte_cols])
+                _corr_buf = io.BytesIO()
+                _corr_fig.savefig(_corr_buf, format="png", dpi=150, bbox_inches="tight")
+                _corr_buf.seek(0)
+                st.image(_corr_buf, width=550)
+                _corr_pdf_buf = io.BytesIO()
+                _corr_fig.savefig(_corr_pdf_buf, format="pdf", bbox_inches="tight")
+                _corr_pdf_buf.seek(0)
+                st.download_button(
+                    label="⬇️ Download PDF",
+                    data=_corr_pdf_buf,
+                    file_name="analyte_correlation_map.pdf",
+                    mime="application/pdf",
+                )
+                plt.close(_corr_fig)
 
         # === Spectra Overlay: Color by replicate or analyte ===
         _dl_figs: list = []

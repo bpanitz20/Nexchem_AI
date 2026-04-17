@@ -84,22 +84,118 @@ def format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, 
     return summary
 
 
+def plot_analyte_correlation_map(y_df, style=None):
+    """Return a matplotlib Figure showing a Pearson correlation heatmap of Y-block analytes.
+
+    Style matches publication figure: cells coloured by |r| (Blues), diagonal hatched,
+    black annotations, no colorbar, light grid lines.
+
+    Parameters
+    ----------
+    y_df : pd.DataFrame
+        Y block — columns are analytes, rows are samples.
+    style : dict or None
+        Recognised keys: fig_width, fig_height, tick_fontsize, annot_fontsize
+    """
+    import matplotlib.patches as mpatches
+
+    s = style or {}
+    n = y_df.shape[1]
+    fw = s.get("fig_width",  max(4.0, n * 0.75))
+    fh = s.get("fig_height", max(3.5, n * 0.72))
+    tick_fs  = s.get("tick_fontsize",  8)
+    annot_fs = s.get("annot_fontsize", 7)
+
+    corr = y_df.corr()
+    labels = corr.columns.tolist()
+
+    # Colour by absolute correlation so both +/- extremes are dark
+    abs_corr = corr.abs().values.copy()
+    # Mask diagonal so it renders white underneath the hatch
+    diag_mask = abs_corr.copy().astype(float)
+    for k in range(n):
+        diag_mask[k, k] = np.nan
+
+    fig, ax = plt.subplots(figsize=(fw, fh))
+    ax.imshow(diag_mask, vmin=0, vmax=1.0, cmap="Blues", aspect="equal",
+              interpolation="nearest")
+
+    # Diagonal hatching (crossed lines, light grey face)
+    for k in range(n):
+        rect = mpatches.FancyBboxPatch(
+            (k - 0.5, k - 0.5), 1.0, 1.0,
+            boxstyle="square,pad=0",
+            linewidth=0,
+            facecolor="#d0d0d0",
+            hatch="////",
+            edgecolor="white",
+        )
+        ax.add_patch(rect)
+
+    # Annotations — skip diagonal
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            val = corr.values[i, j]
+            ax.text(j, i, f"{val:.2f}", ha="center", va="center",
+                    fontsize=annot_fs, color="black")
+
+    # Light grid lines between cells
+    for k in range(n + 1):
+        ax.axhline(k - 0.5, color="white", linewidth=0.5)
+        ax.axvline(k - 0.5, color="white", linewidth=0.5)
+
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=tick_fs)
+    ax.set_yticklabels(labels, fontsize=tick_fs)
+    ax.tick_params(length=0)
+
+    # Outer border
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.8)
+        spine.set_edgecolor("black")
+
+    fig.tight_layout()
+    return fig
+
+
 def print_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_rmse_CV,
-                         best_params=None, optimal_param=None, param_name=None):
+                         best_params=None, optimal_param=None, param_name=None,
+                         r2_fold_scores=None, rmse_fold_scores=None):
     """
     Print model performance summary to the console.
     """
+    from scipy.stats import t as _t_dist
+
     print(f"\nFinal Model Metrics for {analyte} ({model_name}):")
     if optimal_param is not None and param_name:
         print(f"{param_name}: {optimal_param}")
     elif best_params is not None:
         print("Best parameters:", best_params)
-    print(f"R²_Cal: {final_r2:.4f}")
-    print(f"R²_CV: {final_r2_CV:.4f}")
-    print(f"RMSE: {final_mse**0.5:.4f}")
-    print(f"RMSECV: {final_rmse_CV:.4f}")
-    #print(f"MSE: {final_mse:.4f}")
-    #print(f"MSECV: {final_mse_CV:.4f}")
+    print(f"R²_Cal:  {final_r2:.4f}")
+    print(f"R²_CV:   {final_r2_CV:.4f}  (pooled)")
+    print(f"RMSE:    {final_mse**0.5:.4f}")
+    print(f"RMSECV:  {final_rmse_CV:.4f}  (pooled)")
+
+    if r2_fold_scores is not None:
+        n = len(r2_fold_scores)
+        mu = np.mean(r2_fold_scores)
+        ci = _t_dist.ppf(0.975, df=n - 1) * np.std(r2_fold_scores, ddof=1) / np.sqrt(n)
+        fold_str = "  ".join(f"{v:.4f}" for v in r2_fold_scores)
+        print(f"R²_CV per-fold:   mean={mu:.4f} ± {ci:.4f} (95% CI, n={n})")
+        print(f"  folds: [{fold_str}]")
+
+    if rmse_fold_scores is not None:
+        n = len(rmse_fold_scores)
+        mu = np.mean(rmse_fold_scores)
+        ci = _t_dist.ppf(0.975, df=n - 1) * np.std(rmse_fold_scores, ddof=1) / np.sqrt(n)
+        fold_str = "  ".join(f"{v:.4f}" for v in rmse_fold_scores)
+        print(f"RMSECV per-fold:  mean={mu:.4f} ± {ci:.4f} (95% CI, n={n})")
+        print(f"  folds: [{fold_str}]")
+
     return format_model_summary(model_name, analyte, final_r2, final_r2_CV, final_mse, final_rmse_CV,
                                 best_params, optimal_param, param_name)
 

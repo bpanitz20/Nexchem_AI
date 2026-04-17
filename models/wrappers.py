@@ -221,7 +221,9 @@ def _pls_compute(x, y, directory, axis, max_lv=15, analyte="", groups=None,
         final_mse=final_mse,
         final_rmse_CV=final_rmse_CV,
         optimal_param=cv_results['optimal_param'],
-        param_name=param_name
+        param_name=param_name,
+        r2_fold_scores=cv_results.get('r2_fold_scores'),
+        rmse_fold_scores=cv_results.get('rmse_fold_scores'),
     )
 
     # Append variable-selection info to the summary string
@@ -470,7 +472,9 @@ def _mlp_compute(x, y, directory, axis, analyte="",
         final_r2_CV=final_r2_CV,
         final_mse=final_mse,
         final_rmse_CV=rmse_CV,
-        best_params=cv_results['best_params']
+        best_params=cv_results['best_params'],
+        r2_fold_scores=cv_results.get('r2_fold_scores'),
+        rmse_fold_scores=cv_results.get('rmse_fold_scores'),
     )
 
     return {
