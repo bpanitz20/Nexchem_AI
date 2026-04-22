@@ -2185,8 +2185,9 @@ if tab == "PCA":
         st.warning("Please run preprocessing first in the 'Preprocessing' tab.")
     else:
         # ✅ Correct imports
-        from models.wrappers import PCA_model
-        from plotting.plot_PCA import plot_pca_loadings
+        from models.wrappers import PCA_model, PCADA_model
+        from plotting.plot_PCA import plot_pca_loadings, plot_pcada_cv_curve
+        from models.cross_val import PCADA_CV
         from preprocessors.aligner import align_xy, align_group_xy
         import os
 
@@ -2194,25 +2195,27 @@ if tab == "PCA":
 
         # === User Controls ===
         with st.expander("⚙️ PCA Display Settings", expanded=True):
+            use_pcada = st.checkbox("PCA-DA (LDA on PCA scores)", value=False)
             show_ellipses = st.checkbox("Show 95% confidence ellipses", value=True)
             ellipse_alpha = st.select_slider(
                 "Ellipse transparency",
                 options=[0.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5],
                 value=0.25
             )
-            top_n = st.selectbox(
+            top_n = st.number_input(
                 "Number of top bands to label on loadings plot (per PC)",
-                options=list(range(1, 11)),
-                index=3
+                min_value=1, value=4, step=1
             )
-            # 🔽 New: how many PCs to compute
             n_components = st.slider("Number of PCA components", min_value=2, max_value=15, value=5, step=1)
-            # 🔽 New: which PCs to plot (1-based for users)
-            col1, col2 = st.columns(2)
-            with col1:
-                pc_x = st.number_input("PC for X-axis", min_value=1, max_value=n_components, value=1, step=1)
-            with col2:
-                pc_y = st.number_input("PC for Y-axis", min_value=1, max_value=n_components, value=2, step=1)
+            if not use_pcada:
+                col1, col2 = st.columns(2)
+                with col1:
+                    pc_x = st.number_input("PC for X-axis", min_value=1, max_value=n_components, value=1, step=1)
+                with col2:
+                    pc_y = st.number_input("PC for Y-axis", min_value=1, max_value=n_components, value=2, step=1)
+            else:
+                pc_x, pc_y = 1, 2
+                _pca_da_n_folds = st.number_input("CV folds", min_value=2, max_value=20, value=5, step=1, key="pcada_n_folds")
 
         # === Get Preprocessed Data ===
         raw_X = st.session_state["preprocessed_spectra"]
@@ -2240,22 +2243,84 @@ if tab == "PCA":
         
         results_dir = st.session_state["models_dir"]
 
-        # === Run PCA and Plot ===
-        st.subheader(f"📊 PCA Score Plot (PC{pc_x} vs PC{pc_y})")
-        pca_results = PCA_model(
-            X=filtered_X,
-            classes=classes,
-            axis=axis,
-            directory=results_dir,
-            n_components=n_components,
-            show_ellipses=show_ellipses,
-            ellipse_alpha=ellipse_alpha,
-            pc_x=pc_x,              # 🔽 pass through
-            pc_y=pc_y               # 🔽 pass through
-        )
-        # Match the PCA_model’s dynamic filename
-        score_img = os.path.join(results_dir, f"PCA_PC{pc_x}_vs_PC{pc_y}.png")
+        # === Run PCA / PCA-DA and Plot ===
+        if use_pcada:
+            _has_class = "Class" in st.session_state["y_block"].columns
+            if not _has_class:
+                st.warning("PCA-DA requires a ‘Class’ column in the Y block. Falling back to PCA.")
+                use_pcada = False
+
+        if use_pcada:
+            st.subheader("📊 PCA-DA Score Plot (LD1 vs LD2)")
+            pca_results = PCADA_model(
+                X=filtered_X,
+                classes=classes,
+                axis=axis,
+                directory=results_dir,
+                n_components=n_components,
+                show_ellipses=show_ellipses,
+                ellipse_alpha=ellipse_alpha,
+            )
+            score_img = os.path.join(results_dir, "PCA_DA_LD1_vs_LD2.png")
+        else:
+            st.subheader(f"📊 PCA Score Plot (PC{pc_x} vs PC{pc_y})")
+            pca_results = PCA_model(
+                X=filtered_X,
+                classes=classes,
+                axis=axis,
+                directory=results_dir,
+                n_components=n_components,
+                show_ellipses=show_ellipses,
+                ellipse_alpha=ellipse_alpha,
+                pc_x=pc_x,
+                pc_y=pc_y,
+            )
+            score_img = os.path.join(results_dir, f"PCA_PC{pc_x}_vs_PC{pc_y}.png")
+
         st.image(score_img, width=800)
+
+        # === PCA-DA CV Accuracy Curve + Confusion Matrix ===
+        if use_pcada:
+            st.subheader("📈 PCA-DA Cross-Validation")
+            _pcada_groups = st.session_state.get("groups")
+            _pcada_n_folds = int(st.session_state.get("pcada_n_folds", 5))
+
+            _cv_accuracies = PCADA_CV(
+                X=filtered_X,
+                classes=classes,
+                max_components=n_components,
+                n_folds=_pcada_n_folds,
+                groups=_pcada_groups,
+            )
+
+            _cv_fig = plot_pcada_cv_curve(
+                accuracies=_cv_accuracies,
+                selected_n=n_components,
+                directory=results_dir,
+            )
+            _cv_buf = io.BytesIO()
+            _cv_fig.savefig(_cv_buf, format="png", dpi=150, bbox_inches="tight")
+            _cv_buf.seek(0)
+            st.image(_cv_buf, width=700)
+            plt.close(_cv_fig)
+
+            # Confusion matrix from full-data LDA predictions
+            from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+            _lda_model  = pca_results["lda_model"]
+            _pca_model  = pca_results["pca_model"]
+            _X_lda_pred = _lda_model.predict(_pca_model.transform(filtered_X))
+            _cm = confusion_matrix(classes, _X_lda_pred, labels=np.unique(classes))
+            _cm_fig, _cm_ax = plt.subplots(figsize=(max(4, len(np.unique(classes))),
+                                                     max(3, len(np.unique(classes)))))
+            ConfusionMatrixDisplay(confusion_matrix=_cm,
+                                   display_labels=np.unique(classes)).plot(ax=_cm_ax, colorbar=False)
+            _cm_ax.set_title("Confusion Matrix (training data)")
+            _cm_fig.tight_layout()
+            _cm_buf = io.BytesIO()
+            _cm_fig.savefig(_cm_buf, format="png", dpi=150, bbox_inches="tight")
+            _cm_buf.seek(0)
+            st.image(_cm_buf, width=500)
+            plt.close(_cm_fig)
 
         # === Loadings Plot ===
         st.subheader("📈 PCA Loadings Plot")

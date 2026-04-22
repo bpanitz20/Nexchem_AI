@@ -6,7 +6,7 @@ Created on Sat Apr 26 18:43:18 2025
 @author: bp
 """
 import numpy as np
-from sklearn.model_selection import KFold, GroupKFold, cross_val_score, cross_val_predict
+from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold, cross_val_score, cross_val_predict
 from sklearn.metrics import mean_squared_error, root_mean_squared_error, r2_score, make_scorer
 from sklearn.model_selection import GridSearchCV
 import pandas as pd
@@ -255,4 +255,54 @@ def KFold_Gridsearch_CV(x, y, model, param_grid, task="regression",
         'r2_fold_scores':   None,           # GridSearchCV ran single scorer; no per-fold R²
         'rmse_fold_scores': rmse_fold_scores,
     }
+
+
+def PCADA_CV(X, classes, max_components, n_folds=5, groups=None):
+    """
+    Sweep PCA n_components from 1 to max_components and compute K-fold CV
+    classification accuracy for PCA-DA (PCA + LDA pipeline) at each value.
+
+    Uses StratifiedKFold when no groups are provided (preserves class proportions
+    per fold). Falls back to GroupKFold when groups are provided (prevents
+    replicate leakage), consistent with the rest of the app.
+
+    Parameters
+    ----------
+    X : np.ndarray  (n_samples, n_features)
+    classes : array-like  class labels
+    max_components : int
+    n_folds : int
+    groups : array-like or None
+
+    Returns
+    -------
+    list of mean CV accuracy (float) for n = 1 … max_components
+    """
+    from sklearn.pipeline import Pipeline
+    from sklearn.decomposition import PCA
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+    classes = np.asarray(classes)
+
+    if groups is not None:
+        cv = GroupKFold(n_splits=n_folds)
+        cv_kwargs = {"groups": groups}
+        print("PCADA_CV: using GroupKFold")
+    else:
+        cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
+        cv_kwargs = {}
+        print("PCADA_CV: using StratifiedKFold")
+    print(f"n_folds = {n_folds}")
+
+    accuracies = []
+    for n in range(1, max_components + 1):
+        pipe = Pipeline([
+            ("pca", PCA(n_components=n)),
+            ("lda", LinearDiscriminantAnalysis()),
+        ])
+        scores = cross_val_score(pipe, X, classes, cv=cv, scoring="accuracy", **cv_kwargs)
+        accuracies.append(float(np.mean(scores)))
+        print(f"  n_components={n:2d}  CV accuracy={accuracies[-1]:.4f}")
+
+    return accuracies
 

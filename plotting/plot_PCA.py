@@ -77,3 +77,41 @@ def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
     plt.savefig(_base + ".png", dpi=300, bbox_inches="tight")
     plt.savefig(_base + ".pdf", bbox_inches="tight")
     plt.close()
+
+
+def plot_pcada_cv_curve(accuracies, selected_n, directory):
+    """Plot CV accuracy vs number of PCA components for PCA-DA.
+
+    Parameters
+    ----------
+    accuracies : list of float
+        Mean CV accuracy for n = 1 … len(accuracies).
+    selected_n : int
+        Currently selected n_components — marked with a dashed vertical line.
+    directory : str or None
+        If provided, saves PNG + PDF. Returns the Figure either way.
+    """
+    n_range = list(range(1, len(accuracies) + 1))
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(n_range, accuracies, marker="o", color="#1f77b4", linewidth=1.8,
+            markersize=5, label="CV Accuracy")
+    ax.axvline(selected_n, color="red", linestyle="--", linewidth=1.2,
+               label=f"Selected (n={selected_n})")
+
+    ax.set_xlabel("Number of PCA Components", fontsize=12)
+    ax.set_ylabel("CV Classification Accuracy", fontsize=12)
+    ax.set_title("PCA-DA: CV Accuracy vs Number of PCA Components", fontsize=12)
+    ax.set_xticks(n_range)
+    ax.set_ylim(0, 1.05)
+    ax.grid(True, linewidth=0.5, alpha=0.7)
+    ax.legend(fontsize=10)
+    fig.tight_layout()
+
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+        _base = os.path.join(directory, "PCADA_CV_Accuracy")
+        fig.savefig(_base + ".png", dpi=300, bbox_inches="tight")
+        fig.savefig(_base + ".pdf", bbox_inches="tight")
+
+    return fig

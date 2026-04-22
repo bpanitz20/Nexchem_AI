@@ -765,3 +765,98 @@ def PCA_model(
         "explained_variance": var_ratio,
         "used_components": (pc_x, pc_y),
     }
+
+
+def PCADA_model(
+    X,
+    classes,
+    axis,
+    directory,
+    n_components=8,
+    show_ellipses=True,
+    ellipse_alpha=0.2,
+):
+    """
+    PCA-DA: PCA for dimensionality reduction followed by LDA for class separation.
+
+    Parameters
+    ----------
+    X : np.ndarray
+    classes : list or np.ndarray
+        Class labels (required).
+    axis : list or np.ndarray
+        Spectral axis (passed through for parity).
+    directory : str
+        Output directory for saved figure.
+    n_components : int
+        Number of PCA components fed into LDA.
+    show_ellipses : bool
+    ellipse_alpha : float
+
+    Returns
+    -------
+    dict with pca_model, lda_model, X_pca, X_lda, explained_variance
+    """
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+    classes = np.asarray(classes)
+    n_classes = len(np.unique(classes))
+
+    # PCA — cap components at min(n_samples, n_features) and n_components
+    pca = PCA(n_components=n_components)
+    X_pca = pca.fit_transform(X)
+    var_ratio = pca.explained_variance_ratio_
+
+    # LDA on PCA scores — max n_classes-1 discriminant axes
+    n_ld = min(n_classes - 1, X_pca.shape[1])
+    lda = LinearDiscriminantAnalysis(n_components=n_ld)
+    X_lda = lda.fit_transform(X_pca, classes)
+
+    # Score plot (LD1 vs LD2 when available, else LD1 only)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    unique_classes = np.unique(classes)
+    color_map = plt.get_cmap("tab10")
+
+    for i, cls in enumerate(unique_classes):
+        mask = classes == cls
+        x_pts = X_lda[mask, 0]
+        y_pts = X_lda[mask, 1] if n_ld >= 2 else np.zeros(mask.sum())
+        color = color_map(i % 10)
+
+        ax.scatter(x_pts, y_pts, label=str(cls), alpha=0.7, color=color)
+
+        if show_ellipses and x_pts.size > 2 and n_ld >= 2:
+            cov = np.cov(x_pts, y_pts)
+            vals, vecs = np.linalg.eigh(cov)
+            order = vals.argsort()[::-1]
+            vals, vecs = vals[order], vecs[:, order]
+            theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+            width, height = 2 * 1.96 * np.sqrt(vals)
+            ellipse = Ellipse(
+                xy=(np.mean(x_pts), np.mean(y_pts)),
+                width=width, height=height, angle=theta,
+                edgecolor=color, facecolor=color,
+                alpha=ellipse_alpha, linewidth=1.2,
+            )
+            ax.add_patch(ellipse)
+
+    ax.set_xlabel("LD1")
+    ax.set_ylabel("LD2" if n_ld >= 2 else "")
+    ax.set_title("PCA-DA Score Plot (LD1 vs LD2)")
+    ax.legend(title="Class")
+    ax.grid(True)
+    fig.tight_layout()
+
+    os.makedirs(directory, exist_ok=True)
+    outname = "PCA_DA_LD1_vs_LD2.png"
+    fig.savefig(os.path.join(directory, outname), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    return {
+        "pca_model": pca,
+        "lda_model": lda,
+        "X_pca": X_pca,
+        "X_lda": X_lda,
+        "explained_variance": var_ratio,
+        "used_components": (1, 2),
+    }
