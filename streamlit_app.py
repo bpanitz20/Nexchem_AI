@@ -2181,20 +2181,22 @@ if tab == "Prediction":
 if tab == "PCA":
     st.header("Step 4: PCA Visualization")
 
-    if "preprocessed_spectra" not in st.session_state or "y_block" not in st.session_state:
-        st.warning("Please run preprocessing first in the 'Preprocessing' tab.")
+    if "y_block" not in st.session_state:
+        st.warning("Please load a Y-block first in the 'Data Loading' tab.")
     else:
-        # ✅ Correct imports
         from models.wrappers import PCA_model, PCADA_model
-        from plotting.plot_PCA import plot_pca_loadings, plot_pcada_cv_curve
+        from plotting.plot_PCA import plot_pca_loadings, plot_yblock_pca_loadings, plot_pcada_cv_curve
         from models.cross_val import PCADA_CV
         from preprocessors.aligner import align_xy, align_group_xy
         import os
 
-        st.markdown("Run PCA on your preprocessed spectra and visualize selected PCs with loadings.")
+        st.markdown("Run PCA on your preprocessed spectra or Y-block data and visualize selected PCs with loadings.")
 
         # === User Controls ===
         with st.expander("⚙️ PCA Display Settings", expanded=True):
+            _raman_ready = "preprocessed_spectra" in st.session_state
+            _source_options = ["Raman spectra", "Y-block (fatty acids)"] if _raman_ready else ["Y-block (fatty acids)"]
+            pca_source = st.radio("Data source", _source_options, index=0, horizontal=True)
             use_pcada = st.checkbox("PCA-DA (LDA on PCA scores)", value=False)
             show_ellipses = st.checkbox("Show 95% confidence ellipses", value=True)
             ellipse_alpha = st.select_slider(
@@ -2203,8 +2205,8 @@ if tab == "PCA":
                 value=0.25
             )
             top_n = st.number_input(
-                "Number of top bands to label on loadings plot (per PC)",
-                min_value=1, value=4, step=1
+                "Number of top bands to label on loadings plot (per PC, 0 = none)",
+                min_value=0, value=4, step=1
             )
             n_components = st.slider("Number of PCA components", min_value=2, max_value=15, value=5, step=1)
             if not use_pcada:
@@ -2217,31 +2219,43 @@ if tab == "PCA":
                 pc_x, pc_y = 1, 2
                 _pca_da_n_folds = st.number_input("CV folds", min_value=2, max_value=20, value=5, step=1, key="pcada_n_folds")
 
-        # === Get Preprocessed Data ===
-        raw_X = st.session_state["preprocessed_spectra"]
-        axis = st.session_state["cropped_axis"]
-
-        # Determine replicate structure
-        first_val = list(raw_X.values())[0]
-        is_group_avg = not isinstance(first_val, list)
-
-        # Use group-averaged Y when spectra are group-averaged
-        if is_group_avg:
-            raw_Y = st.session_state.get("y_block_grouped", st.session_state["y_block"])
-        else:
-            raw_Y = st.session_state["y_block"]
-
-        if is_group_avg:
-            filtered_X, _, _, classes, _ = align_group_xy(raw_X, raw_Y)
-        else:
-            filtered_X, _, _, _, classes, _ = align_xy(raw_X, raw_Y)
-
-        #Directory
+        # === Directory ===
         if "models_dir" not in st.session_state:
             st.error("Please set the Output Directory in the Data Loading tab.")
             st.stop()
-        
         results_dir = st.session_state["models_dir"]
+
+        # === Prepare Data Based on Source ===
+        if pca_source == "Raman spectra":
+            if "preprocessed_spectra" not in st.session_state:
+                st.error("Raman spectra not available. Please run preprocessing first.")
+                st.stop()
+            raw_X = st.session_state["preprocessed_spectra"]
+            axis = st.session_state["cropped_axis"]
+            first_val = list(raw_X.values())[0]
+            is_group_avg = not isinstance(first_val, list)
+            if is_group_avg:
+                raw_Y = st.session_state.get("y_block_grouped", st.session_state["y_block"])
+            else:
+                raw_Y = st.session_state["y_block"]
+            if is_group_avg:
+                filtered_X, _, _, classes, _ = align_group_xy(raw_X, raw_Y)
+            else:
+                filtered_X, _, _, _, classes, _ = align_xy(raw_X, raw_Y)
+            feature_names = None
+        else:
+            from sklearn.preprocessing import StandardScaler as _SS
+            raw_Y = st.session_state["y_block"]
+            numeric_cols = raw_Y.select_dtypes(include="number").columns.tolist()
+            if not numeric_cols:
+                st.error("No numeric columns found in Y-block.")
+                st.stop()
+            _Y_num = raw_Y[numeric_cols].dropna()
+            filtered_X = _SS().fit_transform(_Y_num.values)
+            feature_names = numeric_cols
+            axis = np.arange(len(numeric_cols))
+            classes = (raw_Y.loc[_Y_num.index, "Class"].values
+                       if "Class" in raw_Y.columns else np.zeros(len(_Y_num)))
 
         # === Run PCA / PCA-DA and Plot ===
         if use_pcada:
@@ -2324,14 +2338,24 @@ if tab == "PCA":
 
         # === Loadings Plot ===
         st.subheader("📈 PCA Loadings Plot")
-        plot_pca_loadings(
-            pca_model=pca_results["pca_model"],
-            axis=axis,
-            directory=results_dir,
-            components=[pc_x - 1, pc_y - 1],  # 🔽 show loadings for the same PCs
-            top_n=top_n
-        )
-        loadings_img = os.path.join(results_dir, "PCA_Loadings_Annotated.png")
+        if pca_source == "Raman spectra":
+            plot_pca_loadings(
+                pca_model=pca_results["pca_model"],
+                axis=axis,
+                directory=results_dir,
+                components=[pc_x - 1, pc_y - 1],
+                top_n=top_n
+            )
+            loadings_img = os.path.join(results_dir, "PCA_Loadings_Annotated.png")
+        else:
+            plot_yblock_pca_loadings(
+                pca_model=pca_results["pca_model"],
+                feature_names=feature_names,
+                directory=results_dir,
+                components=[pc_x - 1, pc_y - 1],
+                top_n=top_n
+            )
+            loadings_img = os.path.join(results_dir, "PCA_Loadings_YBlock_Annotated.png")
         st.image(loadings_img, width=800)
 
         _pca_paths = [p for p in [score_img, loadings_img] if os.path.exists(p)]

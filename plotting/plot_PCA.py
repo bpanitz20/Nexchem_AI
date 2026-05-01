@@ -39,6 +39,9 @@ def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
         label = f'PC{idx + 1}'
         plt.plot(axis, pc_load, label=label)
 
+        if top_n == 0:
+            continue
+
         # Annotate top N influential bands (by absolute value), avoid overlap
         sorted_indices = np.argsort(np.abs(pc_load))[::-1]
         annotated = 0
@@ -74,6 +77,78 @@ def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
 
     os.makedirs(directory, exist_ok=True)
     _base = os.path.join(directory, "PCA_Loadings_Annotated")
+    plt.savefig(_base + ".png", dpi=300, bbox_inches="tight")
+    plt.savefig(_base + ".pdf", bbox_inches="tight")
+    plt.close()
+
+
+def plot_yblock_pca_loadings(pca_model, feature_names, directory, components=[0, 1], top_n=3):
+    """
+    Plot PCA loadings for Y-block (e.g. fatty acid) data and label top N features.
+
+    Parameters:
+    -----------
+    pca_model : sklearn.decomposition.PCA
+        Trained PCA object.
+    feature_names : list of str
+        Names of Y-block features (e.g. fatty acid column names).
+    directory : str
+        Output directory.
+    components : list
+        Which PCs to plot (default: [0, 1]).
+    top_n : int
+        Number of top influential features to label per PC.
+    """
+    loadings = pca_model.components_
+    n_features = loadings.shape[1]
+    x_indices = np.arange(n_features)
+
+    fig_width = max(10, n_features * 0.6)
+    plt.figure(figsize=(fig_width, 5))
+
+    for idx in components:
+        pc_load = loadings[idx]
+        label = f'PC{idx + 1}'
+        plt.plot(x_indices, pc_load, label=label, marker='o', markersize=4)
+
+        if top_n == 0:
+            continue
+
+        sorted_indices = np.argsort(np.abs(pc_load))[::-1]
+        annotated = 0
+        used_positions = []
+
+        for i in sorted_indices:
+            x = x_indices[i]
+            y = pc_load[i]
+
+            if any(abs(x - xp) < 2 for xp in used_positions):
+                continue
+
+            plt.annotate(feature_names[i], (x, y),
+                         textcoords="offset points",
+                         xytext=(0, 10),
+                         ha='center',
+                         fontsize=9,
+                         fontweight='bold',
+                         color='black',
+                         rotation=45,
+                         arrowprops=dict(arrowstyle="->", color='gray', lw=0.8))
+            used_positions.append(x)
+            annotated += 1
+            if annotated >= top_n:
+                break
+
+    plt.xticks(x_indices, feature_names, rotation=45, ha='right', fontsize=9)
+    plt.xlabel("Feature")
+    plt.ylabel("Loading Weight")
+    plt.title("PCA Loadings (Y-block)")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+
+    os.makedirs(directory, exist_ok=True)
+    _base = os.path.join(directory, "PCA_Loadings_YBlock_Annotated")
     plt.savefig(_base + ".png", dpi=300, bbox_inches="tight")
     plt.savefig(_base + ".pdf", bbox_inches="tight")
     plt.close()
