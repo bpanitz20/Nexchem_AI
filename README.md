@@ -208,6 +208,16 @@ For major changes (new model types, new preprocessing pipelines, UI redesigns), 
 
 ---
 
+## Citation
+
+If you use NexChem in your research, please cite the accompanying manuscript:
+
+> Panitz, B. et al. (*in review*). NexChem: An Interactive Chemometric Modeling Platform for Raman Spectroscopy. *Food Chemistry*.
+
+Once published, this will be updated with the full citation and DOI. A BibTeX entry will be added here at that time.
+
+---
+
 ## Contact
 
 Developed by **Ben Panitz**
