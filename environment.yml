@@ -3,38 +3,16 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - numpy
-  - pandas
-  - scikit-learn
-  - matplotlib
-  - seaborn
-  - openpyxl
-  - scipy
-  - streamlit
-  - ipython
-  - jupyter_client
-  - jupyter_core
-  - spyder-kernels
+  - numpy>=1.24
+  - pandas>=2.0
+  - scikit-learn>=1.3
+  - matplotlib>=3.7
+  - seaborn>=0.12
+  - openpyxl>=3.1
+  - scipy>=1.11
+  - streamlit>=1.28
   - pip
   - pip:
-      - pybaselines
-      - pysptools
-      - chemometrics
-      - contourpy
-      - cvxopt
-      - cycler
-      - et-xmlfile
-      - fonttools
-      - joblib
-      - kiwisolver
-      - pillow
-      - pyparsing
-      - pytz
       - ramanspy
-      - renishawwire
-      - six
-      - threadpoolctl
-      - tzdata
-      - wget
-      -plotly - 6.6.0
+      - plotly==6.6.0
       - git+https://github.com/rohanisaac/spc.git

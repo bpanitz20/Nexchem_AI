@@ -1,6 +1,6 @@
 # NexChem — Chemometric Modeling Platform
 
-NexChem is an interactive, browser-based application for building and evaluating regression models from spectroscopy and analytical chemistry data. It is designed for analytical chemists and researchers who want to apply chemometric methods without writing code.
+NexChem is an interactive, browser-based application for building and evaluating chemometric models from spectroscopy data. It is designed for analytical chemists and researchers who want to apply chemometric methods without writing code.
 
 Built with [Streamlit](https://streamlit.io), NexChem guides you step-by-step from raw spectra to validated predictive models with publication-ready diagnostic plots.
 
@@ -10,14 +10,15 @@ Built with [Streamlit](https://streamlit.io), NexChem guides you step-by-step fr
 
 **Data Loading**
 - Upload Raman spectra (`.spc` files) as a `.zip` archive
+   -Currently supports .spc files from Thermo Analyzers.
 - Upload reference Y-block data (Excel `.xlsx`)
 - Automatic sample ID matching between spectra and reference data
 
 **Preprocessing**
 - Savitzky-Golay derivative + SNV + global mean-centering
 - AsLS baseline correction + Savitzky-Golay smoothing + SNV
-- Replicate-averaging with group-level preprocessing
-- Crop-only (no normalization)
+- Replicate-averaging with Extended Multiplicative Scatter Correction (EMSC) + mean-centering
+- No preprocessing (pass-through)
 - Preprocessing state is saved and automatically applied to prediction sets — no data leakage
 
 **Regression Modeling**
@@ -27,10 +28,11 @@ Built with [Streamlit](https://streamlit.io), NexChem guides you step-by-step fr
 - One model built per analyte column in your Y-block
 
 **Diagnostic Plots**
-- CV predicted vs. actual
+- CV predicted vs. actual (static and interactive)
 - R² and RMSECV curves
 - PLS: VIP scores, regression coefficients, T²/Q residuals, LV score plot
 - MLP: permutation feature importance
+- Analyte correlation heatmap (Y-block)
 - All plots saved as PNG and PDF to your output directory
 
 **Prediction**
@@ -42,6 +44,8 @@ Built with [Streamlit](https://streamlit.io), NexChem guides you step-by-step fr
 - PCA score plot with selectable principal components
 - 95% confidence ellipses per class
 - PCA loadings plot with annotated top bands
+- PCA-DA: LDA applied to PCA scores with cross-validated accuracy curve
+- Run on Raman spectra or Y-block (fatty acid profiles)
 
 ---
 
@@ -53,10 +57,9 @@ If you downloaded NexChem from the GitHub release page, a one-click launcher is 
 
 1. Download the NexChem release archive.
 2. Extract the folder.
-3. Double-click the launcher for your operating system:
+3. Double-click the launcher:
 
 - **Mac / Linux:** `Launch_NexChem.command`
-- **Windows:** `Launch_NexChem.bat`
 
 The launcher will automatically start the NexChem Streamlit application and open it in your web browser.
 
@@ -68,7 +71,7 @@ conda env create -f environment.yml
 conda activate nexchem_env
 ```
 
-This installs all dependencies including `ramanspy`, `chemometrics`, and the `spc` file reader.
+This installs all dependencies including `ramanspy`, `plotly`, and the `spc` file reader.
 
 > **Note:** The `spc` package is installed directly from GitHub. An internet connection is required for the first install.
 
@@ -133,7 +136,7 @@ All results are saved to the output directory you set in step 1.
 ```
 Nexchem_AI/
 ├── streamlit_app.py          # Main application — all UI tabs
-├── main.py                   # Script-based workflow (no UI)
+├── run_nexchem.py            # PyInstaller entry point for packaged launcher
 ├── config.py                 # Shared defaults (crop region, SavGol params, MLP grid)
 ├── environment.yml           # Conda environment specification
 │
@@ -147,16 +150,22 @@ Nexchem_AI/
 │   └── labeling.py           # Bins continuous targets for classification
 │
 ├── models/
-│   ├── wrappers.py           # PLS_model, MLPRegressor_model, PCA_model
+│   ├── wrappers.py           # PLS_model, MLPRegressor_model, PCA_model, PCADA_model
 │   ├── run_loops.py          # run_regression_loop, MODEL_REGISTRY
-│   ├── cross_val.py          # KFold_CV, KFold_Gridsearch_CV
-│   └── prediction_eval.py    # evaluate_on_prediction_set
+│   ├── cross_val.py          # KFold_CV, KFold_Gridsearch_CV, PCADA_CV
+│   ├── prediction_eval.py    # evaluate_on_prediction_set
+│   ├── vip.py                # VIP score calculation
+│   ├── block_selection.py    # Spectral block/region selection utilities
+│   └── selectors/            # Pluggable feature selectors (VIP, block)
 │
 ├── plotting/
-│   ├── plot_regression.py    # pred vs actual, VIP, coefficients, T²/Q, scores
+│   ├── plot_regression.py    # pred vs actual, VIP, coefficients, T²/Q, scores, correlation map
 │   ├── plot_classifier.py    # confusion matrix, ROC, decision boundary
 │   ├── plot_raw.py           # raw spectra overlays
-│   └── plot_PCA.py           # PCA loadings
+│   └── plot_PCA.py           # PCA scores, loadings, PCA-DA CV curve
+│
+├── utils/
+│   └── pdf_export.py         # PDF export helpers for figures and images
 │
 └── data/
     └── hubbs/

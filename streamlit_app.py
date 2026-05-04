@@ -71,10 +71,11 @@ if tab == "Home":
 
     ---
 
-    ### 🧭 User Guide
+    ### User Guide
     Follow the tabs on the left side of the page. Below are instructions for each step:
 
     **1️⃣ Load Calibration Data**
+    - Choose an output directory to save spectra and results
     - Upload a `.zip` containing your Thermo **Raman spectra (.spc)** files.  
     - Upload an **Excel Y-block** containing target concentrations.  
       - Make sure samples use the correct naming convention (see bottom).  
@@ -85,8 +86,7 @@ if tab == "Home":
     - Choose one of the preprocessing pipelines (e.g., Savitzky-Golay, SNV, EMSC).  
     - Adjust parameters or leave defaults.  
     - Visualize preprocessed spectra.  
-    - ⚠️ *If switching preprocessing pipelines causes an error, refresh the app and reload your data.*
-
+    
     **3️⃣ Modeling**
     - Choose model parameters or leave blank to use automatic selection.  
     - Choose CV parameters or use defaults.  
@@ -103,7 +103,7 @@ if tab == "Home":
 
     ---
 
-    ### 🧩 File Naming Convention
+    ### File Naming Convention
     Raman spectra should follow this format:
     ```
     SampleID-Replicate_.spc
@@ -111,12 +111,12 @@ if tab == "Home":
 
     **Example:**
     ```
-    188-1_450mw_10s.spc
-    188-2_450mw_10s.spc
-    188-3_450mw_10s.spc
-    190-1_450mw_10s.spc
-    190-2_450mw_10s.spc
-    190-3_450mw_10s.spc
+    SS188-1_450mw_10s.spc
+    SS188-2_450mw_10s.spc
+    SS188-3_450mw_10s.spc
+    SS190-1_450mw_10s.spc
+    SS190-2_450mw_10s.spc
+    SS190-3_450mw_10s.spc
     ```
 
     - Anything can come after the underscore (`_`) — for example, acquisition parameters.  
@@ -125,17 +125,17 @@ if tab == "Home":
 
     ---
 
-    ### 📊 Y-Block Excel Format
+    ### Y-Block Excel Format
     The Y-block must contain at least these columns:
 
     | ID    | Class | DHA | EPA | PUFA |
     |:------|:------|----:|----:|----:|
-    | 188-1 | 2022  | 10.5 | 5.1 | 15.6 |
-    | 188-2 | 2022  | 10.5 | 5.1 | 15.6 |
-    | 188-3 | 2022  | 10.5 | 5.1 | 15.6 |
-    | 190-1 | 2023  | 1.5  | 1.0 | 2.5  |
-    | 190-2 | 2023  | 1.5  | 1.0 | 2.5  |
-    | 190-3 | 2023  | 1.5  | 1.0 | 2.5  |
+    | SS188-1 | 2022  | 10.5 | 5.1 | 15.6 |
+    | SS188-2 | 2022  | 10.5 | 5.1 | 15.6 |
+    | SS188-3 | 2022  | 10.5 | 5.1 | 15.6 |
+    | SS190-1 | 2023  | 1.5  | 1.0 | 2.5  |
+    | SS190-2 | 2023  | 1.5  | 1.0 | 2.5  |
+    | SS190-3 | 2023  | 1.5  | 1.0 | 2.5  |
 
     - The **ID** column must match the numeric portion of the corresponding spectra names.  
     - **Class** (optional): used for visualization or grouped CV.  
@@ -143,13 +143,7 @@ if tab == "Home":
     - NexChem_AI automatically loops through each column after the **Class** column and builds one model per target.  
       *Only one target column is required.*
 
-    ---
-
-    ### 💡 Tips
-    - Use consistent **instrument settings** across calibration and prediction runs.  
-    - Keep all files for a calibration set in the same `.zip`.  
-    - Export results and plots directly from the **Results** directory.
-
+    
     ---
 
     **Developed by Ben Panitz – FAU Bioanalytical Core & Aquaculture Research**
