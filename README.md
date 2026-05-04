@@ -55,13 +55,13 @@ Built with [Streamlit](https://streamlit.io), NexChem guides you step-by-step fr
 
 If you downloaded NexChem from the GitHub release page, a one-click launcher is included.
 
-1. Download the NexChem release archive.
-2. Extract the folder.
-3. Double-click the launcher:
+1. Download the `NexChem` binary from the release page.
+2. Double-click to launch — the app will open automatically in your browser.
 
-- **Mac / Linux:** `Launch_NexChem.command`
-
-The launcher will automatically start the NexChem Streamlit application and open it in your web browser.
+> **Mac / Linux note:** If you see a *"cannot be opened because it is from an unidentified developer"* warning, right-click the file and choose **Open**, or run this once in Terminal:
+> ```bash
+> xattr -d com.apple.quarantine NexChem
+> ```
 
 
 ### 2. Manual Installation
