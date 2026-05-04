@@ -7,13 +7,20 @@ import loaders.raman_loader
 import plotting.plot_raw
 import plotting.plot_regression
 import plotting.plot_PCA
+import plotting.plot_classifier
 import models.cross_val
 import models.wrappers
 import models.run_loops
 import models.prediction_eval
+import models.vip
+import models.block_selection
+import models.selectors.vip
+import models.selectors.block
 import preprocessors.aligner
 import preprocessors.labeling
 import preprocessors.raman_preprocess
+import preprocessors.transforms
+import utils.pdf_export
 
 def resource_path(relative_path: str) -> str:
     if hasattr(sys, "_MEIPASS"):
