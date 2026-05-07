@@ -15,6 +15,7 @@ import os
 import tempfile
 from loaders.raman_loader import load_raman
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import re
 from plotting.plot_raw import plot_spectra_colored_by_analyte
 from plotting.plot_regression import plot_pred_vs_actual_interactive, plot_pred_vs_actual_journal, _build_cv_figures, _build_pred_vs_actual_fig, plot_pred_vs_actual_paper, plot_analyte_correlation_map
@@ -267,35 +268,74 @@ if tab == "Data Loading":
         _dl_figs: list = []
         st.subheader("📊 Spectra Overlay")
 
+        _raw_color_options = ["Replicate"]
+        if "Class" in y_df.columns:
+            _raw_color_options.append("Class")
+        _raw_color_options.append("Analyte (Y-block)")
+
         color_mode = st.radio(
             "Color spectra by:",
-            ["Replicate", "Analyte (Y-block)"],
+            _raw_color_options,
             index=0,
             horizontal=True,
             key="raw_color_mode"
         )
 
-        # --- Option 1: color by replicate (pre-made image, if exists) ---
+        # --- Option 1: color by replicate ---
         if color_mode == "Replicate":
-            overlay_path = os.path.join("ignore", "Overlay_Raw.png")  
-            
-            fig, ax = plt.subplots(figsize=(8, 5))
+            pfig = go.Figure()
             for sid, spectra in sample_spectra.items():
                 for spectrum in spectra:
-                    ax.plot(spectrum.spectral_axis, spectrum.spectral_data, alpha=0.7)
-            ax.set_title("Raw Spectra (Colored by Replicate)")
-            ax.set_xlabel("Raman Shift (cm⁻¹)")
-            ax.set_ylabel("Intensity")
+                    pfig.add_trace(go.Scatter(
+                        x=spectrum.spectral_axis,
+                        y=spectrum.spectral_data,
+                        mode="lines",
+                        name=sid,
+                        line=dict(width=1),
+                        opacity=0.7,
+                        hovertemplate="<b>%{fullData.name}</b><br>Shift: %{x:.1f} cm⁻¹<br>Intensity: %{y:.2f}<extra></extra>",
+                    ))
+            pfig.update_layout(
+                title="Overlay of Raw Spectra",
+                xaxis_title="Raman Shift (cm⁻¹)",
+                yaxis_title="Intensity",
+                showlegend=False,
+                height=500,
+            )
+            st.plotly_chart(pfig, use_container_width=True)
 
-            buf = io.BytesIO()
-            fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-            buf.seek(0)
-            st.image(buf, caption="Spectra colored by replicate", width=800)
-            _dl_figs.append(fig)
-            plt.close(fig)
+        # --- Option 2: color by class ---
+        elif color_mode == "Class":
+            class_by_id, color_by_class = ensure_class_colors_from_y(y_df, "Class")
+            pfig = go.Figure()
+            seen_classes = set()
+            for sid, spectra in sample_spectra.items():
+                cls = class_by_id.get(sid, "Unknown")
+                rgba = color_by_class.get(cls, (0.5, 0.5, 0.5, 1.0))
+                color_str = f"rgba({int(rgba[0]*255)},{int(rgba[1]*255)},{int(rgba[2]*255)},{rgba[3]:.2f})"
+                for spectrum in spectra:
+                    pfig.add_trace(go.Scatter(
+                        x=spectrum.spectral_axis,
+                        y=spectrum.spectral_data,
+                        mode="lines",
+                        name=cls,
+                        legendgroup=cls,
+                        showlegend=cls not in seen_classes,
+                        line=dict(color=color_str, width=1),
+                        opacity=0.7,
+                        hovertemplate=f"<b>ID: {sid}</b><br>Class: {cls}<br>Shift: %{{x:.1f}} cm⁻¹<br>Intensity: %{{y:.2f}}<extra></extra>",
+                    ))
+                seen_classes.add(cls)
+            pfig.update_layout(
+                title="Overlay of Raw Spectra (Colored by Class)",
+                xaxis_title="Raman Shift (cm⁻¹)",
+                yaxis_title="Intensity",
+                height=500,
+            )
+            st.plotly_chart(pfig, use_container_width=True)
 
-        # --- Option 2: color by analyte from Y-block ---
-        else:
+        # --- Option 3: color by analyte from Y-block ---
+        elif color_mode == "Analyte (Y-block)":
             st.markdown("### 🎨 Spectra Colored by Analyte")
 
             # analyte columns: everything except "Class" (if present)
@@ -917,6 +957,8 @@ if tab == "Preprocessing":
 
             color_options = ["Replicate"]
             if y_df is not None:
+                if "Class" in y_df.columns:
+                    color_options.append("Class")
                 color_options.append("Analyte (Y-block)")
 
             color_mode = st.radio(
@@ -928,26 +970,61 @@ if tab == "Preprocessing":
             )
 
             if color_mode == "Replicate":
-                # Neutral overlay, all spectra same color
-                fig, ax = plt.subplots(figsize=(8, 5))
+                pfig = go.Figure()
                 for sid, spectra in preprocessed_spectra.items():
                     if isinstance(spectra, Spectrum):
                         spectra = [spectra]
                     for spectrum in spectra:
-                        ax.plot(spectrum.spectral_axis, spectrum.spectral_data, alpha=0.7)
+                        pfig.add_trace(go.Scatter(
+                            x=spectrum.spectral_axis,
+                            y=spectrum.spectral_data,
+                            mode="lines",
+                            name=sid,
+                            line=dict(width=1),
+                            opacity=0.7,
+                            hovertemplate="<b>%{fullData.name}</b><br>Shift: %{x:.1f} cm⁻¹<br>Intensity: %{y:.2f}<extra></extra>",
+                        ))
+                pfig.update_layout(
+                    title="Overlay of All Preprocessed Spectra",
+                    xaxis_title="Raman Shift (cm⁻¹)",
+                    yaxis_title="Intensity (a.u.)",
+                    showlegend=False,
+                    height=500,
+                )
+                st.plotly_chart(pfig, use_container_width=True)
 
-                ax.set_title("Overlay of All Preprocessed Spectra (Colored by Replicate)")
-                ax.set_xlabel("Raman Shift (cm⁻¹)")
-                ax.set_ylabel("Intensity")
+            elif color_mode == "Class":
+                class_by_id, color_by_class = ensure_class_colors_from_y(y_df, "Class")
+                pfig = go.Figure()
+                seen_classes = set()
+                for sid, spectra in preprocessed_spectra.items():
+                    if isinstance(spectra, Spectrum):
+                        spectra = [spectra]
+                    cls = class_by_id.get(sid, "Unknown")
+                    rgba = color_by_class.get(cls, (0.5, 0.5, 0.5, 1.0))
+                    color_str = f"rgba({int(rgba[0]*255)},{int(rgba[1]*255)},{int(rgba[2]*255)},{rgba[3]:.2f})"
+                    for spectrum in spectra:
+                        pfig.add_trace(go.Scatter(
+                            x=spectrum.spectral_axis,
+                            y=spectrum.spectral_data,
+                            mode="lines",
+                            name=cls,
+                            legendgroup=cls,
+                            showlegend=cls not in seen_classes,
+                            line=dict(color=color_str, width=1),
+                            opacity=0.7,
+                            hovertemplate=f"<b>ID: {sid}</b><br>Class: {cls}<br>Shift: %{{x:.1f}} cm⁻¹<br>Intensity: %{{y:.2f}}<extra></extra>",
+                        ))
+                    seen_classes.add(cls)
+                pfig.update_layout(
+                    title="Overlay of All Preprocessed Spectra (Colored by Class)",
+                    xaxis_title="Raman Shift (cm⁻¹)",
+                    yaxis_title="Intensity (a.u.)",
+                    height=500,
+                )
+                st.plotly_chart(pfig, use_container_width=True)
 
-                buf = io.BytesIO()
-                fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-                buf.seek(0)
-                st.image(buf, width=800)
-                _prep_figs.append(fig)
-                plt.close(fig)
-
-            else:
+            elif color_mode == "Analyte (Y-block)":
                 # Color by analyte from Y-block (e.g. EPA+DHA, PUFA)
                 st.markdown("### 🎨 Preprocessed Spectra Colored by Analyte")
 
