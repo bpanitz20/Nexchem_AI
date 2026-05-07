@@ -15,6 +15,6 @@ dependencies:
   - pip:
       - ramanspy
       - plotly==6.6.0
-      # spc reader — if this step fails, install manually:
+      - pypdf
       # pip install --no-build-isolation git+https://github.com/rohanisaac/spc.git
-      - git+https://github.com/rohanisaac/spc.git
+      # install spc separately 
