@@ -13,6 +13,8 @@ dependencies:
   - streamlit>=1.28
   - pip
   - pip:
+      - numpy
       - ramanspy
       - plotly==6.6.0
+      - --no-build-isolation
       - git+https://github.com/rohanisaac/spc.git
