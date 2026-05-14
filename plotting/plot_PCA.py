@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
+def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3, label_fontsize=12, tick_fontsize=10, fig_width=10, fig_height=5, title=None, show_legend=True):
     """
     Plot PCA loadings and label top N influential bands on each component.
 
@@ -32,7 +32,7 @@ def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
         Number of top influential bands to label per PC.
     """
     loadings = pca_model.components_
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(fig_width, fig_height))
 
     for idx in components:
         pc_load = loadings[idx]
@@ -68,11 +68,12 @@ def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
             if annotated >= top_n:
                 break
             
-    plt.xlabel("Wavenumber (cm⁻¹)")
-    plt.ylabel("Loading Weight")
-    plt.title("PCA Loadings")
-    plt.grid(True)
-    plt.legend()
+    plt.xlabel("Wavenumber (cm⁻¹)", fontsize=label_fontsize)
+    plt.ylabel("Loading Weight", fontsize=label_fontsize)
+    plt.tick_params(labelsize=tick_fontsize)
+    plt.title(title if title else "PCA Loadings")
+    if show_legend:
+        plt.legend()
     plt.tight_layout()
 
     os.makedirs(directory, exist_ok=True)
@@ -82,7 +83,7 @@ def plot_pca_loadings(pca_model, axis, directory, components=[0, 1], top_n=3):
     plt.close()
 
 
-def plot_yblock_pca_loadings(pca_model, feature_names, directory, components=[0, 1], top_n=3):
+def plot_yblock_pca_loadings(pca_model, feature_names, directory, components=[0, 1], top_n=3, label_fontsize=12, tick_fontsize=10, fig_width=None, fig_height=5, title=None, show_legend=True):
     """
     Plot PCA loadings for Y-block (e.g. fatty acid) data and label top N features.
 
@@ -103,8 +104,8 @@ def plot_yblock_pca_loadings(pca_model, feature_names, directory, components=[0,
     n_features = loadings.shape[1]
     x_indices = np.arange(n_features)
 
-    fig_width = max(10, n_features * 0.6)
-    plt.figure(figsize=(fig_width, 5))
+    _fig_width = fig_width if fig_width is not None else max(10, n_features * 0.6)
+    plt.figure(figsize=(_fig_width, fig_height))
 
     for idx in components:
         pc_load = loadings[idx]
@@ -140,11 +141,12 @@ def plot_yblock_pca_loadings(pca_model, feature_names, directory, components=[0,
                 break
 
     plt.xticks(x_indices, feature_names, rotation=45, ha='right', fontsize=9)
-    plt.xlabel("Feature")
-    plt.ylabel("Loading Weight")
-    plt.title("PCA Loadings (Y-block)")
-    plt.grid(True)
-    plt.legend()
+    plt.xlabel("Feature", fontsize=label_fontsize)
+    plt.ylabel("Loading Weight", fontsize=label_fontsize)
+    plt.tick_params(labelsize=tick_fontsize)
+    plt.title(title if title else "PCA Loadings (Y-block)")
+    if show_legend:
+        plt.legend()
     plt.tight_layout()
 
     os.makedirs(directory, exist_ok=True)
@@ -179,7 +181,6 @@ def plot_pcada_cv_curve(accuracies, selected_n, directory):
     ax.set_title("PCA-DA: CV Accuracy vs Number of PCA Components", fontsize=12)
     ax.set_xticks(n_range)
     ax.set_ylim(0, 1.05)
-    ax.grid(True, linewidth=0.5, alpha=0.7)
     ax.legend(fontsize=10)
     fig.tight_layout()
 

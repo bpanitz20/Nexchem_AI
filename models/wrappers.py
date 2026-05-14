@@ -659,8 +659,15 @@ def PCA_model(
     n_components=8,
     show_ellipses=True,
     ellipse_alpha=0.2,
-    pc_x=1,                 # 1-based index for x-axis PC (PC1 by default)
-    pc_y=2                  # 1-based index for y-axis PC (PC2 by default)
+    pc_x=1,
+    pc_y=2,
+    label_fontsize=12,
+    tick_fontsize=10,
+    point_size=50,
+    fig_width=8.0,
+    fig_height=6.0,
+    title=None,
+    show_legend=True,
 ):
     """
     PCA with selectable PCs on x/y axes and optional class-colored 95% confidence ellipses.
@@ -712,7 +719,7 @@ def PCA_model(
     iy = pc_y - 1
 
     # Plot setup
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(fig_width, fig_height))
     unique_classes = np.unique(classes)
     color_map = plt.get_cmap('tab10')
 
@@ -722,8 +729,7 @@ def PCA_model(
         y_pts = X_pca[mask, iy]
         color = color_map(i % 10)
 
-        # Scatter plot
-        plt.scatter(x_pts, y_pts, label=str(cls), alpha=0.7, color=color)
+        plt.scatter(x_pts, y_pts, label=str(cls), alpha=0.7, color=color, s=point_size)
 
         # 95% ellipse per class
         if show_ellipses and x_pts.size > 2:
@@ -748,11 +754,12 @@ def PCA_model(
     # Final plot formatting
     x_label = f'PC{pc_x} ({var_ratio[ix]*100:.1f}%)'
     y_label = f'PC{pc_y} ({var_ratio[iy]*100:.1f}%)'
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.title(f'PCA Score Plot (PC{pc_x} vs PC{pc_y})')
-    plt.legend(title="Class")
-    plt.grid(True)
+    plt.xlabel(x_label, fontsize=label_fontsize)
+    plt.ylabel(y_label, fontsize=label_fontsize)
+    plt.tick_params(labelsize=tick_fontsize)
+    plt.title(title if title else f'PCA Score Plot (PC{pc_x} vs PC{pc_y})')
+    if show_legend:
+        plt.legend(title="Class")
 
     os.makedirs(directory, exist_ok=True)
     outname = f"PCA_PC{pc_x}_vs_PC{pc_y}.png"
@@ -775,6 +782,13 @@ def PCADA_model(
     n_components=8,
     show_ellipses=True,
     ellipse_alpha=0.2,
+    label_fontsize=12,
+    tick_fontsize=10,
+    point_size=50,
+    fig_width=8.0,
+    fig_height=6.0,
+    title=None,
+    show_legend=True,
 ):
     """
     PCA-DA: PCA for dimensionality reduction followed by LDA for class separation.
@@ -813,7 +827,7 @@ def PCADA_model(
     X_lda = lda.fit_transform(X_pca, classes)
 
     # Score plot (LD1 vs LD2 when available, else LD1 only)
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     unique_classes = np.unique(classes)
     color_map = plt.get_cmap("tab10")
 
@@ -823,7 +837,7 @@ def PCADA_model(
         y_pts = X_lda[mask, 1] if n_ld >= 2 else np.zeros(mask.sum())
         color = color_map(i % 10)
 
-        ax.scatter(x_pts, y_pts, label=str(cls), alpha=0.7, color=color)
+        ax.scatter(x_pts, y_pts, label=str(cls), alpha=0.7, color=color, s=point_size)
 
         if show_ellipses and x_pts.size > 2 and n_ld >= 2:
             cov = np.cov(x_pts, y_pts)
@@ -840,11 +854,12 @@ def PCADA_model(
             )
             ax.add_patch(ellipse)
 
-    ax.set_xlabel("LD1")
-    ax.set_ylabel("LD2" if n_ld >= 2 else "")
-    ax.set_title("PCA-DA Score Plot (LD1 vs LD2)")
-    ax.legend(title="Class")
-    ax.grid(True)
+    ax.set_xlabel("LD1", fontsize=label_fontsize)
+    ax.set_ylabel("LD2" if n_ld >= 2 else "", fontsize=label_fontsize)
+    ax.tick_params(labelsize=tick_fontsize)
+    ax.set_title(title if title else "PCA-DA Score Plot (LD1 vs LD2)")
+    if show_legend:
+        ax.legend(title="Class")
     fig.tight_layout()
 
     os.makedirs(directory, exist_ok=True)

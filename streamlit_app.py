@@ -2290,6 +2290,47 @@ if tab == "PCA":
                 pc_x, pc_y = 1, 2
                 _pca_da_n_folds = st.number_input("CV folds", min_value=2, max_value=20, value=5, step=1, key="pcada_n_folds")
 
+        with st.expander("⚙️ PCA plot options", expanded=False):
+            _ps = st.session_state.get("pca_plot_style", {})
+            _pc1, _pc2, _pc3 = st.columns(3)
+            with _pc1:
+                _pca_tick_fs  = st.number_input("Tick label size",  value=_ps.get("tick_fontsize",  10), min_value=6, step=1, key="pca_tick_fs")
+                _pca_label_fs = st.number_input("Axis label size",  value=_ps.get("label_fontsize", 12), min_value=6, step=1, key="pca_label_fs")
+            with _pc2:
+                _pca_pt_size = st.number_input("Point size", value=_ps.get("point_size", 50), min_value=1, step=1, key="pca_pt_size")
+            with _pc3:
+                _pca_fw_col, _pca_fh_col = st.columns(2)
+                with _pca_fw_col:
+                    _pca_fw = st.number_input("Fig width",  value=_ps.get("fig_width",  8.0), min_value=2.0, step=0.5, format="%.1f", key="pca_fw")
+                with _pca_fh_col:
+                    _pca_fh = st.number_input("Fig height", value=_ps.get("fig_height", 6.0), min_value=2.0, step=0.5, format="%.1f", key="pca_fh")
+            _px1, _px2 = st.columns(2)
+            with _px1:
+                _pca_score_title = st.text_input("Score plot title (blank = default)", value=_ps.get("score_title", ""), key="pca_score_title")
+            with _px2:
+                _pca_loadings_title = st.text_input("Loadings plot title (blank = default)", value=_ps.get("loadings_title", ""), key="pca_loadings_title")
+            _pca_show_legend = st.checkbox("Show legend", value=_ps.get("show_legend", True), key="pca_show_legend")
+            st.session_state["pca_plot_style"] = {
+                "tick_fontsize":  _pca_tick_fs,
+                "label_fontsize": _pca_label_fs,
+                "point_size":     _pca_pt_size,
+                "fig_width":      _pca_fw,
+                "fig_height":     _pca_fh,
+                "score_title":    _pca_score_title,
+                "loadings_title": _pca_loadings_title,
+                "show_legend":    _pca_show_legend,
+            }
+
+        _pca_style       = st.session_state.get("pca_plot_style", {})
+        pca_tick_fs      = _pca_style.get("tick_fontsize",  10)
+        pca_label_fs     = _pca_style.get("label_fontsize", 12)
+        pca_pt_size      = _pca_style.get("point_size",     50)
+        pca_fw           = _pca_style.get("fig_width",       8.0)
+        pca_fh           = _pca_style.get("fig_height",      6.0)
+        pca_score_title    = _pca_style.get("score_title",    "").strip() or None
+        pca_loadings_title = _pca_style.get("loadings_title", "").strip() or None
+        pca_show_legend    = _pca_style.get("show_legend", True)
+
         # === Directory ===
         if "models_dir" not in st.session_state:
             st.error("Please set the Output Directory in the Data Loading tab.")
@@ -2345,6 +2386,13 @@ if tab == "PCA":
                 n_components=n_components,
                 show_ellipses=show_ellipses,
                 ellipse_alpha=ellipse_alpha,
+                label_fontsize=pca_label_fs,
+                tick_fontsize=pca_tick_fs,
+                point_size=pca_pt_size,
+                fig_width=pca_fw,
+                fig_height=pca_fh,
+                title=pca_score_title,
+                show_legend=pca_show_legend,
             )
             score_img = os.path.join(results_dir, "PCA_DA_LD1_vs_LD2.png")
         else:
@@ -2359,6 +2407,13 @@ if tab == "PCA":
                 ellipse_alpha=ellipse_alpha,
                 pc_x=pc_x,
                 pc_y=pc_y,
+                label_fontsize=pca_label_fs,
+                tick_fontsize=pca_tick_fs,
+                point_size=pca_pt_size,
+                fig_width=pca_fw,
+                fig_height=pca_fh,
+                title=pca_score_title,
+                show_legend=pca_show_legend,
             )
             score_img = os.path.join(results_dir, f"PCA_PC{pc_x}_vs_PC{pc_y}.png")
 
@@ -2415,7 +2470,13 @@ if tab == "PCA":
                 axis=axis,
                 directory=results_dir,
                 components=[pc_x - 1, pc_y - 1],
-                top_n=top_n
+                top_n=top_n,
+                label_fontsize=pca_label_fs,
+                tick_fontsize=pca_tick_fs,
+                fig_width=pca_fw,
+                fig_height=pca_fh,
+                title=pca_loadings_title,
+                show_legend=pca_show_legend,
             )
             loadings_img = os.path.join(results_dir, "PCA_Loadings_Annotated.png")
         else:
@@ -2424,7 +2485,13 @@ if tab == "PCA":
                 feature_names=feature_names,
                 directory=results_dir,
                 components=[pc_x - 1, pc_y - 1],
-                top_n=top_n
+                top_n=top_n,
+                label_fontsize=pca_label_fs,
+                tick_fontsize=pca_tick_fs,
+                fig_width=pca_fw,
+                fig_height=pca_fh,
+                title=pca_loadings_title,
+                show_legend=pca_show_legend,
             )
             loadings_img = os.path.join(results_dir, "PCA_Loadings_YBlock_Annotated.png")
         st.image(loadings_img, width=800)
