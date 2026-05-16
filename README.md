@@ -58,10 +58,7 @@ If you downloaded NexChem from the GitHub release page, a one-click launcher is 
 1. Download the `NexChem` binary from the release page.
 2. Double-click to launch — the app will open automatically in your browser.
 
-> **Mac / Linux note:** If you see a *"cannot be opened because it is from an unidentified developer"* warning, right-click the file and choose **Open**, or run this once in Terminal:
-> ```bash
-> xattr -d com.apple.quarantine NexChem
-> ```
+> **Mac / Linux note:** If you see a *"cannot be opened because it is from an unidentified developer"* warning, go to Privacy & security settings and choose open anyway.
 
 
 ### 2. Manual Installation
