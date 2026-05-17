@@ -8,11 +8,13 @@ Created on Sat May  3 11:20:48 2025
 
 import os
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
 from sklearn.metrics import ConfusionMatrixDisplay
 from sklearn.metrics import roc_curve, auc
 from sklearn.preprocessing import label_binarize
 from sklearn.decomposition import PCA
+from matplotlib.patches import Ellipse
 
 
 
@@ -140,3 +142,210 @@ def plot_decision_boundary(x, y, model, directory, model_name, analyte):
     plt.savefig(_base + '.png', dpi=300)
     plt.savefig(_base + '.pdf')
     plt.close()
+
+
+# ── PLS-DA plot functions ────────────────────────────────────────────────────
+# All functions return a matplotlib Figure for display in Streamlit.
+
+
+def plot_plsda_cv_curve(cv_results, optimal_param, analyte="",
+                        fig_width=7.0, fig_height=5.0,
+                        label_fontsize=12, tick_fontsize=10):
+    """
+    CV accuracy vs n_components curve (analog of RMSECV/RMSEC plot in
+    regression).  Shows both calibration and CV accuracy so the user can
+    judge over-fitting and select the optimal number of latent variables.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    param_range  = list(range(1, len(cv_results['mean_acc_CV']) + 1))
+    mean_acc_cv  = cv_results['mean_acc_CV']
+    mean_acc_cal = cv_results['mean_acc_cal']
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.plot(param_range, mean_acc_cv,  'o-', color='steelblue',
+            label='CV Accuracy',  linewidth=1.8, markersize=5)
+    ax.plot(param_range, mean_acc_cal, 's--', color='tomato',
+            label='Cal Accuracy', linewidth=1.5, markersize=5)
+    ax.axvline(optimal_param, color='grey', linestyle=':', linewidth=1.2,
+               label=f'Optimal LV = {optimal_param}')
+    ax.set_xlabel('Number of Latent Variables', fontsize=label_fontsize)
+    ax.set_ylabel('Accuracy', fontsize=label_fontsize)
+    ax.set_ylim(0, 1.05)
+    ax.set_xticks(param_range)
+    ax.tick_params(labelsize=tick_fontsize)
+    title = 'PLS-DA CV Accuracy vs LVs'
+    if analyte:
+        title += f' — {analyte}'
+    ax.set_title(title, fontsize=label_fontsize)
+    ax.legend(fontsize=tick_fontsize)
+    fig.tight_layout()
+    return fig
+
+
+def plot_plsda_confusion_matrix(y_true, y_pred, classes, suffix="",
+                                analyte="", fig_width=5.0, fig_height=4.5,
+                                label_fontsize=12, tick_fontsize=10,
+                                cmap='Blues'):
+    """
+    Confusion matrix as a matplotlib Figure (not saved to disk).
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ConfusionMatrixDisplay.from_predictions(
+        y_true, y_pred,
+        display_labels=classes,
+        cmap=cmap,
+        xticks_rotation=45,
+        ax=ax,
+    )
+    title = f'Confusion Matrix{suffix}'
+    if analyte:
+        title += f' — {analyte}'
+    ax.set_title(title, fontsize=label_fontsize)
+    ax.tick_params(labelsize=tick_fontsize)
+    fig.tight_layout()
+    return fig
+
+
+def plot_plsda_scores(x_scores, y_labels, classes, lv_x=1, lv_y=2,
+                      show_ellipses=True, ellipse_alpha=0.18,
+                      class_colors=None, analyte="",
+                      fig_width=7.0, fig_height=6.0,
+                      label_fontsize=12, tick_fontsize=10,
+                      point_size=50, show_legend=True):
+    """
+    LV scores plot (LVx vs LVy) colored by class with optional 95 %
+    confidence ellipses.  Mirrors the PCA score plot style in the app.
+
+    Parameters
+    ----------
+    x_scores     : np.ndarray  (n_samples, n_components)
+    y_labels     : array-like  class labels
+    classes      : array-like  ordered unique class labels
+    lv_x, lv_y  : int  1-based LV indices for x/y axes
+    show_ellipses : bool
+    ellipse_alpha : float
+    class_colors : dict or None  {class_label: color}
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    y_labels = np.asarray(y_labels)
+    cmap = plt.get_cmap('tab10')
+    ix, iy = lv_x - 1, lv_y - 1
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    for i, cls in enumerate(classes):
+        mask  = y_labels == cls
+        x_pts = x_scores[mask, ix]
+        y_pts = x_scores[mask, iy]
+        color = class_colors[cls] if class_colors else cmap(i % 10)
+
+        ax.scatter(x_pts, y_pts, label=str(cls), color=color,
+                   alpha=0.8, s=point_size, edgecolors='k', linewidths=0.4)
+
+        if show_ellipses and x_pts.size > 2:
+            cov  = np.cov(x_pts, y_pts)
+            vals, vecs = np.linalg.eigh(cov)
+            order = vals.argsort()[::-1]
+            vals, vecs = vals[order], vecs[:, order]
+            theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+            w, h  = 2 * 1.96 * np.sqrt(np.abs(vals))
+            ell   = Ellipse(
+                xy        = (x_pts.mean(), y_pts.mean()),
+                width     = w,
+                height    = h,
+                angle     = theta,
+                edgecolor = color,
+                facecolor = color,
+                alpha     = ellipse_alpha,
+                linewidth = 1.2,
+            )
+            ax.add_patch(ell)
+
+    ax.set_xlabel(f'LV{lv_x}', fontsize=label_fontsize)
+    ax.set_ylabel(f'LV{lv_y}', fontsize=label_fontsize)
+    ax.tick_params(labelsize=tick_fontsize)
+    ax.axhline(0, color='grey', linewidth=0.6, linestyle='--')
+    ax.axvline(0, color='grey', linewidth=0.6, linestyle='--')
+    title = f'PLS-DA Score Plot (LV{lv_x} vs LV{lv_y})'
+    if analyte:
+        title += f' — {analyte}'
+    ax.set_title(title, fontsize=label_fontsize)
+    if show_legend:
+        ax.legend(title='Class', fontsize=tick_fontsize)
+    fig.tight_layout()
+    return fig
+
+
+def plot_plsda_score_distribution(y_score, y_true, classes,
+                                  suffix="", analyte="",
+                                  class_colors=None,
+                                  fig_width=6.0, fig_height=5.0,
+                                  label_fontsize=12, tick_fontsize=10,
+                                  point_size=20):
+    """
+    Strip + box plot of the continuous PLS-DA prediction score grouped by
+    true class.  For binary models the score is the raw regression output
+    (0 = class[0], 1 = class[1]); the decision boundary at 0.5 is drawn
+    as a dashed reference line.
+
+    Parameters
+    ----------
+    y_score  : np.ndarray  output of PLSDAClassifier.decision_function()
+    y_true   : array-like  true class labels
+    classes  : array-like  ordered unique class labels
+    suffix   : str  e.g. '' for calibration, ' (CV)' for cross-val
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    y_true  = np.asarray(y_true)
+    scores  = np.asarray(y_score)
+    if scores.ndim > 1:
+        scores = scores[:, 0]
+
+    cmap = plt.get_cmap('tab10')
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    positions = np.arange(len(classes))
+    box_data  = [scores[y_true == cls] for cls in classes]
+
+    bp = ax.boxplot(box_data, positions=positions, widths=0.35,
+                    patch_artist=True, showfliers=False,
+                    medianprops=dict(color='black', linewidth=1.5))
+
+    for i, (cls, patch) in enumerate(zip(classes, bp['boxes'])):
+        color = class_colors[cls] if class_colors else cmap(i % 10)
+        patch.set_facecolor(color)
+        patch.set_alpha(0.4)
+        jitter = np.random.default_rng(0).uniform(-0.12, 0.12, size=box_data[i].size)
+        ax.scatter(positions[i] + jitter, box_data[i],
+                   color=color, s=point_size, alpha=0.7,
+                   edgecolors='k', linewidths=0.3, zorder=3)
+
+    if len(classes) == 2:
+        ax.axhline(0.5, color='grey', linestyle='--', linewidth=1.0,
+                   label='Decision boundary (0.5)')
+        ax.legend(fontsize=tick_fontsize)
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels([str(c) for c in classes], fontsize=tick_fontsize)
+    ax.set_ylabel('PLS-DA Score', fontsize=label_fontsize)
+    ax.set_xlabel('True Class', fontsize=label_fontsize)
+    ax.tick_params(labelsize=tick_fontsize)
+    title = f'PLS-DA Score Distribution{suffix}'
+    if analyte:
+        title += f' — {analyte}'
+    ax.set_title(title, fontsize=label_fontsize)
+    fig.tight_layout()
+    return fig

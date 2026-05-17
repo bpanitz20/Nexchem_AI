@@ -1137,7 +1137,199 @@ if tab == "Modeling":
         from models.run_loops import run_regression_loop
         from preprocessors.aligner import align_xy, align_group_xy
 
-        st.header("Step 3: Build Regression Model")
+        st.header("Step 3: Build Model")
+        modeling_mode = st.radio("", ["Regression", "Classification"],
+                                 horizontal=True, key="modeling_mode_radio")
+
+        # ── Classification branch ─────────────────────────────────────────────
+        if modeling_mode == "Classification":
+            from models.classification_wrappers import PLSDA_model
+            from plotting.plot_classifier import (
+                plot_plsda_cv_curve,
+                plot_plsda_confusion_matrix,
+                plot_plsda_scores,
+                plot_plsda_score_distribution,
+            )
+
+            st.subheader("Choose Classification Model")
+            st.markdown("**PLS-DA** (Partial Least Squares Discriminant Analysis)")
+
+            enable_manual_cls = st.checkbox(
+                "Manually select number of latent variables?", value=False,
+                key="cls_manual_lv")
+            manual_param_cls = None
+            if enable_manual_cls:
+                manual_param_cls = st.number_input(
+                    "Manual n_components:", min_value=1, max_value=20, value=3,
+                    key="cls_n_comp")
+            max_lv_cls = 15
+
+            st.subheader("Choose Cross-Validation")
+            n_folds_cls = st.number_input(
+                "Number of K-Folds:", min_value=2, max_value=20, value=8,
+                key="cls_n_folds")
+
+            _first_val_cls = list(st.session_state["preprocessed_spectra"].values())[0]
+            _is_group_avg_cls = not isinstance(_first_val_cls, list)
+
+            use_group_kfold_cls = False
+            if not _is_group_avg_cls:
+                use_group_kfold_cls = st.checkbox(
+                    "Keep replicates together in the same fold?", value=False,
+                    key="cls_group_kfold")
+
+            st.subheader("Class Column")
+            _yb = st.session_state["y_block"]
+            _class_col_options = list(_yb.columns)
+            class_col_cls = st.selectbox(
+                "Select class column:", options=_class_col_options,
+                key="cls_col_select")
+
+            if st.button("Run PLS-DA", key="cls_run_btn"):
+                raw_X_cls = st.session_state["preprocessed_spectra"]
+                axis_cls  = st.session_state["cropped_axis"]
+
+                if _is_group_avg_cls:
+                    raw_Y_cls = st.session_state.get(
+                        "y_block_grouped", st.session_state["y_block"])
+                    (filtered_X_cls, filtered_Y_cls,
+                     filtered_ids_cls, class_labels_cls,
+                     unmatched_cls) = align_group_xy(raw_X_cls, raw_Y_cls)
+                    group_labels_cls = None
+                else:
+                    raw_Y_cls = st.session_state["y_block"]
+                    (filtered_X_cls, filtered_Y_cls,
+                     filtered_ids_cls, filtered_groups_cls,
+                     class_labels_cls, unmatched_cls) = align_xy(raw_X_cls, raw_Y_cls)
+                    group_labels_cls = (
+                        filtered_groups_cls if use_group_kfold_cls else None)
+
+                if unmatched_cls:
+                    st.warning(
+                        f"⚠️ Samples excluded (no matching spectra): "
+                        f"{', '.join(sorted(str(u) for u in unmatched_cls))}")
+
+                # Resolve class labels: align_xy strips a column literally
+                # named "Class" and returns it as class_labels_cls.
+                if class_col_cls in filtered_Y_cls.columns:
+                    y_labels_cls = filtered_Y_cls[class_col_cls].values.astype(str)
+                elif class_labels_cls is not None:
+                    y_labels_cls = np.array(class_labels_cls, dtype=str)
+                else:
+                    st.error(
+                        f"Could not locate column '{class_col_cls}' after "
+                        f"alignment. Check your Y block.")
+                    st.stop()
+
+                if "models_dir" not in st.session_state:
+                    st.error("Please set the Output Directory in the Data Loading tab.")
+                    st.stop()
+
+                with st.spinner("Running PLS-DA…"):
+                    cls_results = PLSDA_model(
+                        x            = filtered_X_cls,
+                        y_labels     = y_labels_cls,
+                        directory    = st.session_state["models_dir"],
+                        axis         = axis_cls,
+                        max_lv       = max_lv_cls,
+                        analyte      = class_col_cls,
+                        groups       = group_labels_cls,
+                        manual_param = manual_param_cls,
+                        sample_ids   = np.array(filtered_ids_cls),
+                        n_folds      = int(n_folds_cls),
+                    )
+
+                st.session_state["cls_results"]  = cls_results
+                st.session_state["cls_built"]    = True
+                st.session_state["cls_analyte"]  = class_col_cls
+                st.success("PLS-DA complete!")
+
+            # ── Results ──────────────────────────────────────────────────────
+            if st.session_state.get("cls_built", False):
+                cls_res     = st.session_state["cls_results"]
+                cls_analyte = st.session_state.get("cls_analyte", "")
+                cls_classes = cls_res["classes"]
+                opt_lv      = cls_res["optimal_param"]
+
+                st.subheader("Model Summary")
+                _mc1, _mc2, _mc3 = st.columns(3)
+                _mc1.metric("Optimal LVs",   opt_lv)
+                _mc2.metric("Cal Accuracy",  f"{cls_res['cal_accuracy']:.3f}")
+                _mc3.metric("CV Accuracy",   f"{cls_res['cv_accuracy']:.3f}")
+
+                if st.checkbox("Show CV accuracy table", value=False,
+                               key="cls_show_cv_table"):
+                    st.dataframe(cls_res["cv_table_df"], use_container_width=True)
+
+                if st.checkbox("Show CV fold assignments", value=False,
+                               key="cls_show_folds"):
+                    _fdf = cls_res.get("fold_df")
+                    if _fdf is not None:
+                        st.dataframe(_fdf, use_container_width=True)
+
+                st.subheader("Plots")
+
+                with st.expander("Plot options", expanded=False):
+                    _co1, _co2 = st.columns(2)
+                    with _co1:
+                        show_ell_cls = st.checkbox(
+                            "Show 95% confidence ellipses", value=True,
+                            key="cls_show_ell")
+                        ell_alpha_cls = st.slider(
+                            "Ellipse opacity", 0.05, 0.5, 0.18, step=0.01,
+                            key="cls_ell_alpha")
+                    with _co2:
+                        _lv_max = max(opt_lv, 2)
+                        lv_x_cls = st.number_input(
+                            "Scores plot X-axis (LV#)",
+                            min_value=1, max_value=_lv_max, value=1,
+                            key="cls_lv_x")
+                        lv_y_cls = st.number_input(
+                            "Scores plot Y-axis (LV#)",
+                            min_value=1, max_value=_lv_max,
+                            value=min(2, opt_lv),
+                            key="cls_lv_y")
+
+                # Row 1 — CV curve | Scores plot
+                _pc1, _pc2 = st.columns(2)
+                with _pc1:
+                    st.pyplot(plot_plsda_cv_curve(
+                        cls_res["cv_results"], opt_lv, analyte=cls_analyte))
+                with _pc2:
+                    if opt_lv >= 2:
+                        st.pyplot(plot_plsda_scores(
+                            cls_res["x_scores"], cls_res["y_true"], cls_classes,
+                            lv_x=lv_x_cls, lv_y=lv_y_cls,
+                            show_ellipses=show_ell_cls,
+                            ellipse_alpha=ell_alpha_cls,
+                            analyte=cls_analyte))
+                    else:
+                        st.info("Scores plot requires ≥ 2 latent variables.")
+
+                # Row 2 — Confusion matrices
+                _pc3, _pc4 = st.columns(2)
+                with _pc3:
+                    st.pyplot(plot_plsda_confusion_matrix(
+                        cls_res["y_true"], cls_res["y_pred_cal"],
+                        cls_classes, suffix="", analyte=cls_analyte))
+                with _pc4:
+                    st.pyplot(plot_plsda_confusion_matrix(
+                        cls_res["y_true"], cls_res["y_pred_cv"],
+                        cls_classes, suffix=" (CV)", analyte=cls_analyte))
+
+                # Row 3 — Score distributions
+                _pc5, _pc6 = st.columns(2)
+                with _pc5:
+                    st.pyplot(plot_plsda_score_distribution(
+                        cls_res["y_score_cal"], cls_res["y_true"],
+                        cls_classes, suffix="", analyte=cls_analyte))
+                with _pc6:
+                    st.pyplot(plot_plsda_score_distribution(
+                        cls_res["y_score_cv"], cls_res["y_true"],
+                        cls_classes, suffix=" (CV)", analyte=cls_analyte))
+
+            st.stop()
+        # ── End classification branch ─────────────────────────────────────────
 
         # === Model selection ===
         st.subheader("Choose Regression Model")

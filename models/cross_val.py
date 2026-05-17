@@ -306,3 +306,127 @@ def PCADA_CV(X, classes, max_components, n_folds=5, groups=None):
 
     return accuracies
 
+
+def KFold_CV_class(x, y_labels, model, param_name,
+                   param_range, n_folds=8, groups=None,
+                   analyte="", model_name="", directory="",
+                   manual_param=None, sample_ids=None):
+    """
+    K-fold Cross-Validation for classification (e.g. PLS-DA).
+
+    Mirrors KFold_CV for regression but:
+      - uses accuracy as the optimisation metric instead of RMSE gap
+      - uses StratifiedKFold (no groups) or StratifiedGroupKFold (with groups)
+        to preserve class balance per fold while keeping replicates together
+
+    Parameters
+    ----------
+    x            : np.ndarray  (n_samples, n_features)
+    y_labels     : array-like  class labels — NOT mean-centred
+    model        : sklearn estimator whose predict() returns class labels
+    param_name   : str   e.g. 'n_components'
+    param_range  : list  values to sweep
+    n_folds      : int
+    groups       : array-like or None
+        Replicate group labels.  StratifiedGroupKFold keeps all replicates of
+        a group in the same fold AND balances class proportions across folds.
+    analyte      : str
+    model_name   : str
+    directory    : str
+    manual_param : value or None  skips optimisation and fixes this parameter
+    sample_ids   : array-like or None  used for fold_df tracking
+
+    Returns
+    -------
+    dict with keys:
+        mean_acc_CV, mean_acc_cal, pooled_acc_CV,
+        optimal_param, Y_pred_CV, Y_score_CV,
+        acc_fold_scores, fold_df
+    """
+    from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold
+    from sklearn.metrics import accuracy_score
+
+    y_labels = np.asarray(y_labels)
+
+    if groups is not None:
+        cv = StratifiedGroupKFold(n_splits=n_folds)
+        cv_kwargs = {"groups": np.asarray(groups)}
+        print("Using StratifiedGroupKFold CV")
+    else:
+        cv = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
+        cv_kwargs = {}
+        print("Using StratifiedKFold CV")
+    print(f"n_folds = {n_folds}")
+
+    mean_acc_CV   = []
+    mean_acc_cal  = []
+    all_preds     = {}
+    all_scores    = {}
+    all_acc_folds = {}
+    fold_assignments = {} if sample_ids is not None else None
+
+    for param_value in param_range:
+        model.set_params(**{param_name: param_value})
+
+        fold_preds  = np.empty(len(y_labels), dtype=object)
+        fold_scores = np.full(len(y_labels), np.nan)
+        fold_accs   = []
+
+        for fold_idx, (train_idx, test_idx) in enumerate(
+                cv.split(x, y_labels, **cv_kwargs)):
+            X_tr, X_te = x[train_idx], x[test_idx]
+            y_tr, y_te = y_labels[train_idx], y_labels[test_idx]
+
+            model.fit(X_tr, y_tr)
+            y_hat = model.predict(X_te)
+
+            fold_preds[test_idx] = y_hat
+            fold_accs.append(accuracy_score(y_te, y_hat))
+
+            # Continuous score for downstream plots (e.g. score distribution)
+            if hasattr(model, 'decision_function'):
+                fold_scores[test_idx] = model.decision_function(X_te).ravel()
+
+            # Capture fold assignments on first param sweep only
+            if param_value == param_range[0] and fold_assignments is not None:
+                for i in test_idx:
+                    fold_assignments[sample_ids[i]] = fold_idx
+
+        all_preds[param_value]     = fold_preds
+        all_scores[param_value]    = fold_scores
+        all_acc_folds[param_value] = np.array(fold_accs)
+        mean_acc_CV.append(float(np.mean(fold_accs)))
+
+        # Calibration accuracy (fit on full data)
+        model.fit(x, y_labels)
+        y_cal = model.predict(x)
+        mean_acc_cal.append(float(accuracy_score(y_labels, y_cal)))
+
+    # Build fold assignment DataFrame
+    if fold_assignments:
+        fold_df = pd.DataFrame(
+            list(fold_assignments.items()), columns=["Sample ID", "CV Fold"]
+        )
+        fold_df = fold_df.sort_values("CV Fold").reset_index(drop=True)
+    else:
+        fold_df = None
+
+    # Optimal parameter: maximise pooled CV accuracy
+    if manual_param is not None:
+        optimal_param = manual_param
+    else:
+        optimal_param = list(param_range)[int(np.argmax(mean_acc_CV))]
+
+    pooled_acc_CV = float(accuracy_score(y_labels, all_preds[optimal_param]))
+
+    return {
+        'mean_acc_CV':     mean_acc_CV,
+        'mean_acc_cal':    mean_acc_cal,
+        'pooled_acc_CV':   pooled_acc_CV,
+        'optimal_param':   optimal_param,
+        'Y_pred_CV':       all_preds[optimal_param],
+        'Y_score_CV':      all_scores[optimal_param],
+        'acc_fold_scores': all_acc_folds[optimal_param],
+        'fold_df':         fold_df,
+    }
+
