@@ -1138,8 +1138,9 @@ if tab == "Modeling":
         from preprocessors.aligner import align_xy, align_group_xy
 
         st.header("Step 3: Build Model")
-        modeling_mode = st.radio("", ["Regression", "Classification"],
-                                 horizontal=True, key="modeling_mode_radio")
+        modeling_mode = st.radio("Modeling type", ["Regression", "Classification"],
+                                 horizontal=True, key="modeling_mode_radio",
+                                 label_visibility="collapsed")
 
         # ── Classification branch ─────────────────────────────────────────────
         if modeling_mode == "Classification":
@@ -1149,6 +1150,7 @@ if tab == "Modeling":
                 plot_plsda_confusion_matrix,
                 plot_plsda_scores,
                 plot_plsda_score_distribution,
+                plot_plsda_loadings,
             )
 
             st.subheader("Choose Classification Model")
@@ -1278,6 +1280,9 @@ if tab == "Modeling":
                         ell_alpha_cls = st.slider(
                             "Ellipse opacity", 0.05, 0.5, 0.18, step=0.01,
                             key="cls_ell_alpha")
+                        label_samples_cls = st.checkbox(
+                            "Label samples on scores plot", value=False,
+                            key="cls_label_samples")
                     with _co2:
                         _lv_max = max(opt_lv, 2)
                         lv_x_cls = st.number_input(
@@ -1289,6 +1294,16 @@ if tab == "Modeling":
                             min_value=1, max_value=_lv_max,
                             value=min(2, opt_lv),
                             key="cls_lv_y")
+                        _lv_options = list(range(1, opt_lv + 1))
+                        loadings_lvs_cls = st.multiselect(
+                            "Loadings plot — LVs to show",
+                            options=_lv_options,
+                            default=_lv_options[:min(2, opt_lv)],
+                            key="cls_loadings_lvs")
+                        top_n_bands_cls = st.number_input(
+                            "Label top N bands per LV (0 = none)",
+                            min_value=0, max_value=20, value=0,
+                            key="cls_top_n_bands")
 
                 # Row 1 — CV curve | Scores plot
                 _pc1, _pc2 = st.columns(2)
@@ -1297,12 +1312,15 @@ if tab == "Modeling":
                         cls_res["cv_results"], opt_lv, analyte=cls_analyte))
                 with _pc2:
                     if opt_lv >= 2:
+                        _slabels = (cls_res["sample_ids"]
+                                    if label_samples_cls else None)
                         st.pyplot(plot_plsda_scores(
                             cls_res["x_scores"], cls_res["y_true"], cls_classes,
                             lv_x=lv_x_cls, lv_y=lv_y_cls,
                             show_ellipses=show_ell_cls,
                             ellipse_alpha=ell_alpha_cls,
-                            analyte=cls_analyte))
+                            analyte=cls_analyte,
+                            sample_labels=_slabels))
                     else:
                         st.info("Scores plot requires ≥ 2 latent variables.")
 
@@ -1327,6 +1345,15 @@ if tab == "Modeling":
                     st.pyplot(plot_plsda_score_distribution(
                         cls_res["y_score_cv"], cls_res["y_true"],
                         cls_classes, suffix=" (CV)", analyte=cls_analyte))
+
+                # Row 4 — Loadings
+                if loadings_lvs_cls:
+                    _x_load = cls_res["model"].pls_.x_loadings_
+                    st.pyplot(plot_plsda_loadings(
+                        _x_load, cls_res["axis"],
+                        lv_indices=loadings_lvs_cls,
+                        analyte=cls_analyte,
+                        top_n_bands=int(top_n_bands_cls)))
 
             st.stop()
         # ── End classification branch ─────────────────────────────────────────

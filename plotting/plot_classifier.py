@@ -218,20 +218,23 @@ def plot_plsda_scores(x_scores, y_labels, classes, lv_x=1, lv_y=2,
                       class_colors=None, analyte="",
                       fig_width=7.0, fig_height=6.0,
                       label_fontsize=12, tick_fontsize=10,
-                      point_size=50, show_legend=True):
+                      point_size=50, show_legend=True,
+                      sample_labels=None):
     """
     LV scores plot (LVx vs LVy) colored by class with optional 95 %
     confidence ellipses.  Mirrors the PCA score plot style in the app.
 
     Parameters
     ----------
-    x_scores     : np.ndarray  (n_samples, n_components)
-    y_labels     : array-like  class labels
-    classes      : array-like  ordered unique class labels
-    lv_x, lv_y  : int  1-based LV indices for x/y axes
+    x_scores      : np.ndarray  (n_samples, n_components)
+    y_labels      : array-like  class labels
+    classes       : array-like  ordered unique class labels
+    lv_x, lv_y   : int  1-based LV indices for x/y axes
     show_ellipses : bool
     ellipse_alpha : float
-    class_colors : dict or None  {class_label: color}
+    class_colors  : dict or None  {class_label: color}
+    sample_labels : array-like or None
+        When provided, each point is annotated with its label (sample ID).
 
     Returns
     -------
@@ -271,6 +274,14 @@ def plot_plsda_scores(x_scores, y_labels, classes, lv_x=1, lv_y=2,
             )
             ax.add_patch(ell)
 
+        if sample_labels is not None:
+            labels_arr = np.asarray(sample_labels)
+            for xp, yp, lbl in zip(x_pts, y_pts, labels_arr[mask]):
+                ax.annotate(str(lbl), (xp, yp),
+                            fontsize=max(tick_fontsize - 3, 6),
+                            xytext=(3, 3), textcoords='offset points',
+                            color=color, clip_on=True)
+
     ax.set_xlabel(f'LV{lv_x}', fontsize=label_fontsize)
     ax.set_ylabel(f'LV{lv_y}', fontsize=label_fontsize)
     ax.tick_params(labelsize=tick_fontsize)
@@ -282,6 +293,80 @@ def plot_plsda_scores(x_scores, y_labels, classes, lv_x=1, lv_y=2,
     ax.set_title(title, fontsize=label_fontsize)
     if show_legend:
         ax.legend(title='Class', fontsize=tick_fontsize)
+    fig.tight_layout()
+    return fig
+
+
+def plot_plsda_loadings(x_loadings, axis, lv_indices,
+                        analyte="", fig_width=8.0, fig_height=4.5,
+                        label_fontsize=12, tick_fontsize=10,
+                        top_n_bands=0):
+    """
+    Plot PLS-DA X-loadings for one or more latent variables against the
+    spectral axis.  Loadings describe which spectral regions drive each LV.
+
+    Parameters
+    ----------
+    x_loadings  : np.ndarray  (n_features, n_components)
+                  from PLSDAClassifier.pls_.x_loadings_
+    axis        : array-like  spectral axis (wavenumber / Raman shift)
+    lv_indices  : list of int  1-based LV numbers to plot (e.g. [1, 2])
+    analyte     : str
+    top_n_bands : int  annotate the N bands with the highest |loading| per LV;
+                  0 = no annotations
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    axis = np.asarray(axis)
+    cmap = plt.get_cmap('tab10')
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.axhline(0, color='grey', linewidth=0.7, linestyle='--')
+
+    for i, lv in enumerate(lv_indices):
+        col_idx = lv - 1
+        if col_idx >= x_loadings.shape[1]:
+            continue
+        load_vec = x_loadings[:, col_idx]
+        color = cmap(i % 10)
+        ax.plot(axis, load_vec, color=color, linewidth=1.4, label=f'LV{lv}')
+
+        if top_n_bands and top_n_bands > 0:
+            min_sep     = 10  # minimum spacing between labelled bands (axis units)
+            cand_sorted = np.argsort(np.abs(load_vec))[::-1]
+            selected    = []
+            for idx in cand_sorted:
+                if all(abs(axis[idx] - axis[j]) >= min_sep for j in selected):
+                    selected.append(idx)
+                if len(selected) == int(top_n_bands):
+                    break
+            for idx in selected:
+                xval   = axis[idx]
+                yval   = load_vec[idx]
+                offset = 5 if yval >= 0 else -5
+                va     = 'bottom' if yval >= 0 else 'top'
+                ax.annotate(
+                    f'{xval:.0f}',
+                    xy=(xval, yval),
+                    xytext=(0, offset),
+                    textcoords='offset points',
+                    fontsize=max(tick_fontsize - 3, 6),
+                    color=color,
+                    ha='center', va=va,
+                    clip_on=True,
+                )
+
+    ax.set_xlabel('Raman Shift (cm⁻¹)', fontsize=label_fontsize)
+    ax.set_ylabel('Loading', fontsize=label_fontsize)
+    ax.tick_params(labelsize=tick_fontsize)
+    title = 'PLS-DA Loadings'
+    if analyte:
+        title += f' — {analyte}'
+    ax.set_title(title, fontsize=label_fontsize)
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(fontsize=tick_fontsize)
     fig.tight_layout()
     return fig
 
