@@ -21,17 +21,18 @@ Built with [Streamlit](https://streamlit.io), NexChem guides you step-by-step fr
 - No preprocessing (pass-through)
 - Preprocessing state is saved and automatically applied to prediction sets — no data leakage
 
-**Regression Modeling**
-- Partial Least Squares (PLS) with automatic or manual component selection
-- Multi-Layer Perceptron (MLP) regression with grid search cross-validation
-- Standard K-Fold and Group K-Fold cross-validation
+**Modeling**
+- Regression or classification modeling modes
+- Multiple model types available per mode
+- Manual or automatic parameter selection
+- Variable selection
+- Adjustable cross validation strategies to fit your dataset
 - One model built per analyte column in your Y-block
 
 **Diagnostic Plots**
-- CV predicted vs. actual (static and interactive)
-- R² and RMSECV curves
-- PLS: VIP scores, regression coefficients, T²/Q residuals, LV score plot
-- MLP: permutation feature importance
+- Mode-specific diagnostic plots generated automatically for each model
+- Regression: performance curves, variable importance, residual diagnostics, and more
+- Classification: confusion matrices, ROC curves, score plots, and more
 - Analyte correlation heatmap (Y-block)
 - All plots saved as PNG and PDF to your output directory
 
@@ -45,7 +46,7 @@ Built with [Streamlit](https://streamlit.io), NexChem guides you step-by-step fr
 - 95% confidence ellipses per class
 - PCA loadings plot with annotated top bands
 - PCA-DA: LDA applied to PCA scores with cross-validated accuracy curve
-- Run on Raman spectra or Y-block (fatty acid profiles)
+- Run on Raman spectra or Y-block 
 
 ---
 
@@ -107,7 +108,7 @@ Pack all `.spc` files for one dataset into a single `.zip` file before uploading
 **Reference data (Y-block)** must be an Excel file with:
 - An `ID` column matching the sample group IDs in the spectra names
 - One column per target analyte (e.g., `DHA`, `EPA`, `PUFA`)
-- An optional `Class` column for coloring plots
+- An optional `Class` column for coloring plots and cross validation
 
 Example:
 
@@ -120,7 +121,7 @@ Example:
 
 1. **Data Loading tab** — Set an output directory, then upload your `.zip` spectra file and your Y-block Excel file. Click **Load calibration data**.
 2. **Preprocessing tab** — Choose a preprocessing method, adjust parameters if needed, and click **Run Preprocessing**.
-3. **Modeling tab** — Choose a model (PLS or MLP), set cross-validation options, and click **Train Model**. Diagnostic plots appear automatically.
+3. **Modeling tab** — Choose regression or classification, select a model type, set cross-validation options, and click **Train Model**. Diagnostic plots appear automatically.
 4. **Prediction tab** — Upload a new `.zip` of spectra. Optionally upload a Y-block for that set. Click **Run Prediction**.
 5. **PCA tab** — Visualize your preprocessed data in PCA space with class-colored groupings.
 
@@ -148,6 +149,7 @@ Nexchem_AI/
 │
 ├── models/
 │   ├── wrappers.py           # PLS_model, MLPRegressor_model, PCA_model, PCADA_model
+│   ├── classification_wrappers.py  # PLS-DA classifier and classification entry points
 │   ├── run_loops.py          # run_regression_loop, MODEL_REGISTRY
 │   ├── cross_val.py          # KFold_CV, KFold_Gridsearch_CV, PCADA_CV
 │   ├── prediction_eval.py    # evaluate_on_prediction_set
@@ -168,27 +170,6 @@ Nexchem_AI/
     └── hubbs/
         └── Seriola/          # Example dataset (Seriola dorsalis Raman spectra)
 ```
-
----
-
-## Adding a New Regression Model
-
-NexChem uses a registry-based architecture. To add a new model type (e.g., SVR):
-
-1. Add a wrapper function `SVR_model(...)` in `models/wrappers.py` following the same compute / plot / shim pattern as `PLS_model`. Populate `result['diagnostic_plots']` and `result['model_type']` in the returned dict.
-2. Add an adapter in `models/run_loops.py`:
-   ```python
-   def _run_svr(X, y, results_dir, axis, analyte, groups, n_folds,
-                sample_ids, class_labels, manual_param=None, param_grid=None):
-       return SVR_model(...)
-   ```
-3. Register it:
-   ```python
-   MODEL_REGISTRY["SVR"] = _run_svr
-   ```
-4. Add `"SVR"` to the model selectbox in `streamlit_app.py`.
-
-The diagnostic plot rendering in Tab 3 is generic — it reads `diagnostic_plots` from the result dict, so no other UI changes are needed.
 
 ---
 

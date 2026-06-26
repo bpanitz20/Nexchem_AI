@@ -81,7 +81,9 @@ if tab == "Home":
     - Upload an **Excel Y-block** containing target concentrations.  
       - Make sure samples use the correct naming convention (see bottom).  
       - Ensure sample names in the spectra and Excel **ID** column match exactly.  
+      - Include a class column for visualization, cross validation, and prediction set hold out 
     - Visualize raw data to verify spectra were loaded correctly.
+    - Choose samples to remove or hold out as a separate prediction set
 
     **2️⃣ Preprocess Spectra**
     - Choose one of the preprocessing pipelines (e.g., Savitzky-Golay, SNV, EMSC).  
@@ -89,18 +91,22 @@ if tab == "Home":
     - Visualize preprocessed spectra.  
     
     **3️⃣ Modeling**
-    - Choose model parameters or leave blank to use automatic selection.  
-    - Choose CV parameters or use defaults.  
+    - Choose classification or regression
+    - Choose model type and parameters or leave blank to use automatic selection.  
+    - Choose Cross Validation parameters or use defaults.
+    - Some models allow variable selection  
     - Visualize predicted vs. actual plots and model performance metrics.
 
     **4️⃣ Prediction Tab**
-    - Upload new Raman spectra to generate predictions from your saved calibration model.  
+    - Use with regression models
+    - Upload new Raman spectra to generate predictions from your saved calibration model or use samples removed in step 1.  
     - If you upload a Y-block for the prediction set, external predicted vs. actual plots will be generated.
 
     **5️⃣ PCA Tab**
-    - Generates a PCA plot using your spectral data.  
+    - Generates a PCA plot using your spectral data or y block analytes
     - Select which principal components (PCs) to display and view loadings.  
-    - Uses only the **Class** column from the Y-block for grouping and coloring.
+    - Uses the **Class** column from the Y-block for grouping and coloring.
+    - PCA-DA also available
 
     ---
 
