@@ -10,6 +10,7 @@ import plotting.plot_PCA
 import plotting.plot_classifier
 import models.cross_val
 import models.wrappers
+import models.classification_wrappers
 import models.run_loops
 import models.prediction_eval
 import models.vip
